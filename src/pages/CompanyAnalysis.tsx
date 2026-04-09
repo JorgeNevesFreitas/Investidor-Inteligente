@@ -22,25 +22,14 @@ export default function CompanyAnalysis() {
   const [showAllYears, setShowAllYears] = useState(false);
   const { toast } = useToast();
 
-  if (!baseCompany) {
-    return (
-      <AppLayout>
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="text-lg font-semibold text-foreground">Empresa não encontrada</p>
-          <p className="mt-1 text-sm text-muted-foreground">O ticker "{ticker}" não está disponível na base de dados.</p>
-          <Link to="/" className="mt-4 text-sm text-primary hover:underline">Voltar ao Dashboard</Link>
-        </div>
-      </AppLayout>
-    );
-  }
-
   // Merge base + extra financials, deduplicate by year
   const allFinancials = useMemo(() => {
+    if (!baseCompany) return [];
     const map = new Map<number, FinancialYear>();
     baseCompany.financials.forEach(f => map.set(f.year, f));
     extraFinancials.forEach(f => map.set(f.year, f));
     return Array.from(map.values()).sort((a, b) => a.year - b.year);
-  }, [baseCompany.financials, extraFinancials]);
+  }, [baseCompany?.financials, extraFinancials]);
 
   // Calculate growth rates for newly added years
   const financialsWithGrowth = useMemo(() => {
@@ -65,11 +54,23 @@ export default function CompanyAnalysis() {
     return financialsWithGrowth.slice(-10);
   }, [financialsWithGrowth, showAllYears]);
 
+  if (!baseCompany) {
+    return (
+      <AppLayout>
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <p className="text-lg font-semibold text-foreground">Empresa não encontrada</p>
+          <p className="mt-1 text-sm text-muted-foreground">O ticker "{ticker}" não está disponível na base de dados.</p>
+          <Link to="/" className="mt-4 text-sm text-primary hover:underline">Voltar ao Dashboard</Link>
+        </div>
+      </AppLayout>
+    );
+  }
+
   // Create a company object with merged data
-  const company: Company = useMemo(() => ({
+  const company: Company = {
     ...baseCompany,
     financials: displayedFinancials,
-  }), [baseCompany, displayedFinancials]);
+  };
 
   const last = financialsWithGrowth[financialsWithGrowth.length - 1];
 
@@ -81,9 +82,7 @@ export default function CompanyAnalysis() {
         body: { url: tenKLink.trim() },
       });
 
-      if (error) {
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
 
       if (!data?.success) {
         toast({
