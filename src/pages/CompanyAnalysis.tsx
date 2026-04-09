@@ -60,7 +60,66 @@ export default function CompanyAnalysis() {
             </div>
             <p className="text-sm text-muted-foreground">{company.sector} · {company.currency}</p>
           </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowLinkInput(!showLinkInput)}
+              className="text-xs"
+            >
+              <Link2 className="h-3.5 w-3.5 mr-1" />
+              10-K Link
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                setIsUpdating(true);
+                toast({
+                  title: "Em desenvolvimento",
+                  description: "A funcionalidade de atualização automática requer configuração do backend (Lovable Cloud). Entretanto, podes indicar o link do 10-K manualmente.",
+                });
+                setIsUpdating(false);
+              }}
+              disabled={isUpdating}
+              className="text-xs"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isUpdating ? "animate-spin" : ""}`} />
+              Atualizar dados
+            </Button>
+          </div>
         </div>
+
+        {/* Manual 10-K link */}
+        {showLinkInput && (
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3">
+            <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Input
+              placeholder="Cole aqui o link do 10-K mais recente (ex: https://www.sec.gov/...)"
+              value={tenKLink}
+              onChange={(e) => setTenKLink(e.target.value)}
+              className="h-8 text-xs"
+            />
+            <Button
+              size="sm"
+              disabled={!tenKLink.trim()}
+              onClick={() => {
+                toast({
+                  title: "Link guardado",
+                  description: "O link do 10-K foi registado. A extração automática de dados será disponibilizada com o backend.",
+                });
+              }}
+              className="text-xs shrink-0"
+            >
+              Guardar
+            </Button>
+            {tenKLink && (
+              <a href={tenKLink} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                <ExternalLink className="h-4 w-4 text-primary hover:text-primary/80" />
+              </a>
+            )}
+          </div>
+        )}
 
         {/* KPIs */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
