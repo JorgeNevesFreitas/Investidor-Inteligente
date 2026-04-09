@@ -25,23 +25,24 @@ export function calculateDCF(
 ): DCFResult {
   const { discountRate, growthRate1to5, growthRate6to10, terminalMultiple, marginOfSafety } = inputs;
   
-  let totalPV = 0;
+  // Build projected cash flows array (years 1-10 + terminal)
+  const cashFlows: number[] = [];
   let cf = baseCashFlow;
-
-  // Years 1-5
   for (let i = 1; i <= 5; i++) {
     cf = cf * (1 + growthRate1to5 / 100);
-    totalPV += cf / Math.pow(1 + discountRate / 100, i);
+    cashFlows.push(cf);
   }
-
-  // Years 6-10
   for (let i = 6; i <= 10; i++) {
     cf = cf * (1 + growthRate6to10 / 100);
-    totalPV += cf / Math.pow(1 + discountRate / 100, i);
+    cashFlows.push(cf);
   }
-
-  // Terminal value: Year 10 CF × terminal multiple, discounted back
   const terminalValue = cf * terminalMultiple;
+
+  // Calculate intrinsic value using discount rate
+  let totalPV = 0;
+  for (let i = 0; i < 10; i++) {
+    totalPV += cashFlows[i] / Math.pow(1 + discountRate / 100, i + 1);
+  }
   const pvTerminal = terminalValue / Math.pow(1 + discountRate / 100, 10);
 
   const intrinsicValueTotal = totalPV + pvTerminal;
@@ -49,8 +50,25 @@ export function calculateDCF(
   const intrinsicWithMargin = intrinsicValuePerShare * (1 - marginOfSafety / 100);
   const upside = ((intrinsicValuePerShare - currentPrice) / currentPrice) * 100;
 
-  // Simple IRR approximation
-  const irr = (Math.pow(intrinsicValuePerShare / currentPrice, 1 / 10) - 1) * 100;
+  // IRR: find rate r where PV(cashFlows, TV, r) = currentPrice * sharesOutstanding
+  const marketCap = currentPrice * sharesOutstanding;
+  const calcPV = (r: number) => {
+    let pv = 0;
+    for (let i = 0; i < 10; i++) {
+      pv += cashFlows[i] / Math.pow(1 + r, i + 1);
+    }
+    pv += terminalValue / Math.pow(1 + r, 10);
+    return pv;
+  };
+
+  // Bisection method
+  let lo = -0.5, hi = 2.0;
+  for (let iter = 0; iter < 100; iter++) {
+    const mid = (lo + hi) / 2;
+    if (calcPV(mid) > marketCap) lo = mid;
+    else hi = mid;
+  }
+  const irr = ((lo + hi) / 2) * 100;
 
   let status: DCFResult["status"] = "wait";
   if (currentPrice <= intrinsicWithMargin) status = "invest";
