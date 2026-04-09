@@ -133,9 +133,10 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
                 <input
                   type="number"
                   step="0.5"
-                  value={inputs[key] as number}
-                  onChange={e => updateInput(key, parseFloat(e.target.value) || 0)}
-                  className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={inputs[key] as number | ""}
+                  placeholder="Obrigatório"
+                  onChange={e => updateInput(key, e.target.value === "" ? "" : parseFloat(e.target.value))}
+                  className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
             ))}
