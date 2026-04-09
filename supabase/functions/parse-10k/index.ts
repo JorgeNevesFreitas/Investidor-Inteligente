@@ -26,16 +26,20 @@ function extractTableRows(markdown: string): Map<string, string[]> {
   return rows;
 }
 
-function getYearColumns(rows: Map<string, string[]>): number[] {
+function getYearColumns(rows: Map<string, string[]>): { years: number[], indices: number[] } {
   const fyRow = rows.get('Fiscal Year') || rows.get('Period Ending');
-  if (!fyRow) return [];
+  if (!fyRow) return { years: [], indices: [] };
   
   const years: number[] = [];
-  for (const cell of fyRow) {
-    const match = cell.match(/(?:FY\s+)?(\d{4})/);
-    if (match) years.push(parseInt(match[1]));
+  const indices: number[] = [];
+  for (let i = 0; i < fyRow.length; i++) {
+    const match = fyRow[i].match(/(?:FY\s+)?(\d{4})/);
+    if (match) {
+      years.push(parseInt(match[1]));
+      indices.push(i);
+    }
   }
-  return years;
+  return { years, indices };
 }
 
 function getVal(rows: Map<string, string[]>, label: string, colIdx: number): number | null {
