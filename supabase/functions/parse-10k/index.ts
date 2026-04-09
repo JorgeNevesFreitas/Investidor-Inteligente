@@ -129,8 +129,8 @@ Deno.serve(async (req) => {
     const cashFlowRows = allMarkdown[2] ? extractTableRows(allMarkdown[2]) : new Map();
 
     // Get year columns from income statement
-    const years = getYearColumns(incomeRows);
-    console.log('Found years:', years);
+    const { years, indices } = getYearColumns(incomeRows);
+    console.log('Found years:', years, 'at indices:', indices);
 
     if (years.length === 0) {
       return new Response(
@@ -143,15 +143,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Extract data for the most recent year (first non-TTM column)
-    // Skip TTM column if present
-    let targetIdx = 0;
-    const fyRow = incomeRows.get('Fiscal Year');
-    if (fyRow && fyRow[0]?.includes('TTM')) {
-      targetIdx = 1;
-    }
-
-    const year = years[targetIdx] || years[0];
+    // Use the most recent fiscal year (first in the years array)
+    const year = years[0];
+    const targetIdx = indices[0];
     
     // Income Statement data
     const revenue = getVal(incomeRows, 'Revenue', targetIdx);
