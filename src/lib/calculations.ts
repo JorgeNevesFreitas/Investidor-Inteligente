@@ -3,7 +3,7 @@ export interface DCFInputs {
   discountRate: number;
   growthRate1to5: number;
   growthRate6to10: number;
-  terminalGrowthRate: number;
+  terminalMultiple: number;
   marginOfSafety: number;
 }
 
@@ -23,7 +23,7 @@ export function calculateDCF(
   currentPrice: number,
   inputs: DCFInputs
 ): DCFResult {
-  const { discountRate, growthRate1to5, growthRate6to10, terminalGrowthRate, marginOfSafety } = inputs;
+  const { discountRate, growthRate1to5, growthRate6to10, terminalMultiple, marginOfSafety } = inputs;
   
   let totalPV = 0;
   let cf = baseCashFlow;
@@ -40,9 +40,8 @@ export function calculateDCF(
     totalPV += cf / Math.pow(1 + discountRate / 100, i);
   }
 
-  // Terminal value
-  const terminalCF = cf * (1 + terminalGrowthRate / 100);
-  const terminalValue = terminalCF / ((discountRate - terminalGrowthRate) / 100);
+  // Terminal value: Year 10 CF × terminal multiple, discounted back
+  const terminalValue = cf * terminalMultiple;
   const pvTerminal = terminalValue / Math.pow(1 + discountRate / 100, 10);
 
   const intrinsicValueTotal = totalPV + pvTerminal;

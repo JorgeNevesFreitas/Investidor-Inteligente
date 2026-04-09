@@ -10,7 +10,7 @@ const defaultDCF = {
   discountRate: 10,
   growthRate1to5: 8,
   growthRate6to10: 5,
-  terminalGrowthRate: 2.5,
+  terminalMultiple: 15,
   marginOfSafety: 25,
 };
 
