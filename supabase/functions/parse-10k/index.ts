@@ -170,10 +170,10 @@ Deno.serve(async (req) => {
     const bookValue = getVal(balanceRows, 'Book Value Per Share', bsIdx);
 
     // Cash Flow data
-    const cfYears = getYearColumns(cashFlowRows);
+    const cfResult = getYearColumns(cashFlowRows);
     let cfIdx = 0;
-    for (let i = 0; i < cfYears.length; i++) {
-      if (cfYears[i] === year) { cfIdx = i; break; }
+    for (let i = 0; i < cfResult.years.length; i++) {
+      if (cfResult.years[i] === year) { cfIdx = cfResult.indices[i]; break; }
     }
     
     const operatingCF = getVal(cashFlowRows, 'Operating Cash Flow', cfIdx);
