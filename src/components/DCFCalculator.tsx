@@ -15,16 +15,25 @@ interface ProjectionRow {
   isTerminal?: boolean;
 }
 
+type FormInputs = {
+  method: "fcf" | "eps";
+  discountRate: number | "";
+  growthRate1to5: number | "";
+  growthRate6to10: number | "";
+  terminalMultiple: number | "";
+  marginOfSafety: number | "";
+};
+
 export function DCFCalculator({ company }: DCFCalculatorProps) {
   const lastYear = company.financials[company.financials.length - 1];
 
-  const [inputs, setInputs] = useState<DCFInputs>({
+  const [inputs, setInputs] = useState<FormInputs>({
     method: "fcf",
-    discountRate: "" as any,
-    growthRate1to5: "" as any,
-    growthRate6to10: "" as any,
-    terminalMultiple: "" as any,
-    marginOfSafety: "" as any,
+    discountRate: "",
+    growthRate1to5: "",
+    growthRate6to10: "",
+    terminalMultiple: "",
+    marginOfSafety: "",
   });
 
   const allFilled = inputs.discountRate !== "" && inputs.growthRate1to5 !== "" && inputs.growthRate6to10 !== "" && inputs.terminalMultiple !== "" && inputs.marginOfSafety !== "";
