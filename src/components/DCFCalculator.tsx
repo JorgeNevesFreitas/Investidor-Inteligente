@@ -15,7 +15,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
     discountRate: 10,
     growthRate1to5: 8,
     growthRate6to10: 5,
-    terminalGrowthRate: 2.5,
+    terminalMultiple: 15,
     marginOfSafety: 25,
   });
 
@@ -55,7 +55,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
               { key: "discountRate", label: "Taxa de desconto (%)" },
               { key: "growthRate1to5", label: "Crescimento anos 1-5 (%)" },
               { key: "growthRate6to10", label: "Crescimento anos 6-10 (%)" },
-              { key: "terminalGrowthRate", label: "Crescimento terminal (%)" },
+              { key: "terminalMultiple", label: "Terminal Multiple (10-15x)" },
               { key: "marginOfSafety", label: "Margem de segurança (%)" },
             ] as const).map(({ key, label }) => (
               <div key={key}>
