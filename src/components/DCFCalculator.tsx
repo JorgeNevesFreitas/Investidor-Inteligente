@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Company } from "@/lib/mockData";
 import { calculateDCF, DCFInputs, DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "./StatusBadge";
