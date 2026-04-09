@@ -20,15 +20,26 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
 
   const [inputs, setInputs] = useState<DCFInputs>({
     method: "fcf",
-    discountRate: 10,
-    growthRate1to5: 8,
-    growthRate6to10: 5,
-    terminalMultiple: 15,
-    marginOfSafety: 25,
+    discountRate: "" as any,
+    growthRate1to5: "" as any,
+    growthRate6to10: "" as any,
+    terminalMultiple: "" as any,
+    marginOfSafety: "" as any,
   });
 
+  const allFilled = inputs.discountRate !== "" && inputs.growthRate1to5 !== "" && inputs.growthRate6to10 !== "" && inputs.terminalMultiple !== "" && inputs.marginOfSafety !== "";
+
+  const numInputs: DCFInputs = {
+    method: inputs.method,
+    discountRate: Number(inputs.discountRate) || 0,
+    growthRate1to5: Number(inputs.growthRate1to5) || 0,
+    growthRate6to10: Number(inputs.growthRate6to10) || 0,
+    terminalMultiple: Number(inputs.terminalMultiple) || 0,
+    marginOfSafety: Number(inputs.marginOfSafety) || 0,
+  };
+
   const baseCF = inputs.method === "fcf" ? lastYear.fcf : lastYear.eps * company.sharesOutstanding;
-  const result: DCFResult = calculateDCF(baseCF, company.sharesOutstanding, company.currentPrice, inputs);
+  const result: DCFResult | null = allFilled ? calculateDCF(baseCF, company.sharesOutstanding, company.currentPrice, numInputs) : null;
 
   const projections = useMemo(() => {
     const rows: ProjectionRow[] = [];
