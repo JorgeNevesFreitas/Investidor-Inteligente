@@ -26,15 +26,29 @@ type FormInputs = {
 
 export function DCFCalculator({ company }: DCFCalculatorProps) {
   const lastYear = company.financials[company.financials.length - 1];
+  const storageKey = `dcf-inputs-${company.ticker}`;
 
-  const [inputs, setInputs] = useState<FormInputs>({
-    method: "fcf",
-    discountRate: "",
-    growthRate1to5: "",
-    growthRate6to10: "",
-    terminalMultiple: "",
-    marginOfSafety: "",
+  const [inputs, setInputs] = useState<FormInputs>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      method: "fcf",
+      discountRate: "",
+      growthRate1to5: "",
+      growthRate6to10: "",
+      terminalMultiple: "",
+      marginOfSafety: "",
+    };
   });
+
+  useEffect(() => {
+    const hasAnyValue = Object.entries(inputs).some(([k, v]) => k !== "method" && v !== "");
+    if (hasAnyValue) {
+      localStorage.setItem(storageKey, JSON.stringify(inputs));
+    }
+  }, [inputs, storageKey]);
 
   const allFilled = inputs.discountRate !== "" && inputs.growthRate1to5 !== "" && inputs.growthRate6to10 !== "" && inputs.terminalMultiple !== "" && inputs.marginOfSafety !== "";
 
