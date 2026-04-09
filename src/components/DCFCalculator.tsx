@@ -86,7 +86,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
     return rows;
   }, [baseCF, inputs, lastYear.year]);
 
-  const updateInput = (key: keyof DCFInputs, value: number | string) => {
+  const updateInput = (key: keyof FormInputs, value: number | string) => {
     setInputs(prev => ({ ...prev, [key]: value }));
   };
 
