@@ -51,13 +51,14 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
   const result: DCFResult | null = allFilled ? calculateDCF(baseCF, company.sharesOutstanding, company.currentPrice, numInputs) : null;
 
   const projections = useMemo(() => {
+    if (!allFilled) return [];
     const rows: ProjectionRow[] = [];
     const baseYear = lastYear.year;
     let cf = baseCF;
-    const dr = inputs.discountRate / 100;
+    const dr = numInputs.discountRate / 100;
 
     for (let i = 1; i <= 5; i++) {
-      cf = cf * (1 + inputs.growthRate1to5 / 100);
+      cf = cf * (1 + numInputs.growthRate1to5 / 100);
       rows.push({
         year: baseYear + i,
         label: `${baseYear + i}`,
@@ -66,7 +67,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
       });
     }
     for (let i = 6; i <= 10; i++) {
-      cf = cf * (1 + inputs.growthRate6to10 / 100);
+      cf = cf * (1 + numInputs.growthRate6to10 / 100);
       rows.push({
         year: baseYear + i,
         label: `${baseYear + i}`,
@@ -74,7 +75,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
         presentValue: cf / Math.pow(1 + dr, i),
       });
     }
-    const terminalValue = cf * inputs.terminalMultiple;
+    const terminalValue = cf * numInputs.terminalMultiple;
     rows.push({
       year: baseYear + 11,
       label: `${baseYear + 10} (TV)`,
