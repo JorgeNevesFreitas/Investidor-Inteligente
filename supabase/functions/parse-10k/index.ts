@@ -157,13 +157,10 @@ Deno.serve(async (req) => {
     const rd = getVal(incomeRows, 'Research & Development', targetIdx);
 
     // Balance Sheet data
-    const bsYears = getYearColumns(balanceRows);
+    const bsResult = getYearColumns(balanceRows);
     let bsIdx = 0;
-    const bsFyRow = balanceRows.get('Fiscal Year');
-    if (bsFyRow && !bsFyRow[0]?.match(/\d{4}/)) bsIdx = 1;
-    // Find matching year index
-    for (let i = 0; i < bsYears.length; i++) {
-      if (bsYears[i] === year) { bsIdx = i; break; }
+    for (let i = 0; i < bsResult.years.length; i++) {
+      if (bsResult.years[i] === year) { bsIdx = bsResult.indices[i]; break; }
     }
     
     const totalDebt = getVal(balanceRows, 'Total Debt', bsIdx) || getVal(balanceRows, 'Long-Term Debt', bsIdx);
