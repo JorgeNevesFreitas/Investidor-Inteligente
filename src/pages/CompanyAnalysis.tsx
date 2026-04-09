@@ -82,7 +82,16 @@ export default function CompanyAnalysis() {
         body: { url: tenKLink.trim() },
       });
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        // supabase.functions.invoke throws on non-2xx; check if data has details
+        const errorMsg = data?.error || error.message || "Erro desconhecido";
+        toast({
+          title: "Erro na extração",
+          description: errorMsg,
+          variant: "destructive",
+        });
+        return;
+      }
 
       if (!data?.success) {
         toast({
