@@ -234,12 +234,86 @@ export default function CompanyAnalysis() {
 
         {/* Tabs */}
         <Tabs defaultValue="financials" className="w-full">
-          <TabsList className="bg-secondary border border-border">
+          <TabsList className="bg-secondary border border-border flex-wrap h-auto gap-1 p-1">
             <TabsTrigger value="financials" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Financials</TabsTrigger>
+            <TabsTrigger value="income" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Income Statement</TabsTrigger>
+            <TabsTrigger value="balance" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Balance Sheet</TabsTrigger>
+            <TabsTrigger value="cashflow" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Cash Flow</TabsTrigger>
             <TabsTrigger value="ratios" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Rácios</TabsTrigger>
             <TabsTrigger value="charts" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Gráficos</TabsTrigger>
             <TabsTrigger value="valuation" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Valuation</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="financials" className="mt-4 space-y-6">
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-foreground">📈 Performance Financeira</h3>
+              </div>
+              <FinancialTable data={displayedFinancials} section="performance" />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="income" className="mt-4">
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-foreground">📄 Income Statement</h3>
+              </div>
+              <FinancialTable data={displayedFinancials} section="incomeStatement" />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="balance" className="mt-4">
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-foreground">🏦 Balance Sheet</h3>
+              </div>
+              <FinancialTable data={displayedFinancials} section="balanceSheet" />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="cashflow" className="mt-4">
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-foreground">💵 Cash Flow Statement</h3>
+              </div>
+              <FinancialTable data={displayedFinancials} section="cashFlow" />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="ratios" className="mt-4 space-y-6">
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-foreground">💰 Rentabilidade e Eficiência</h3>
+              </div>
+              <FinancialTable data={displayedFinancials} section="profitability" />
+            </div>
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-foreground">🧾 Estrutura Financeira</h3>
+              </div>
+              <FinancialTable data={displayedFinancials} section="structure" />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="charts" className="mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <MetricsChart data={displayedFinancials} dataKey="revenue" label="Revenue ($M)" formatValue={v => `${(v / 1000).toFixed(0)}B`} />
+              <MetricsChart data={displayedFinancials} dataKey="netIncome" label="Net Income ($M)" color="hsl(210, 80%, 55%)" formatValue={v => `${(v / 1000).toFixed(0)}B`} />
+              <MetricsChart data={displayedFinancials} dataKey="eps" label="EPS ($)" color="hsl(45, 93%, 47%)" formatValue={v => `$${v.toFixed(1)}`} />
+              <MetricsChart data={displayedFinancials} dataKey="fcf" label="Free Cash Flow ($M)" formatValue={v => `${(v / 1000).toFixed(0)}B`} />
+              <MetricsChart data={displayedFinancials} dataKey="grossMargin" label="Gross Margin (%)" color="hsl(280, 60%, 55%)" formatValue={v => `${v.toFixed(0)}%`} />
+              <MetricsChart data={displayedFinancials} dataKey="roe" label="ROE (%)" color="hsl(0, 72%, 51%)" formatValue={v => `${v.toFixed(0)}%`} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="valuation" className="mt-4">
+            <DCFCalculator company={company} />
+          </TabsContent>
+        </Tabs>
+      </div>
+    </AppLayout>
+  );
+}
 
           <TabsContent value="financials" className="mt-4 space-y-6">
             <div className="rounded-lg border border-border bg-card overflow-hidden">
