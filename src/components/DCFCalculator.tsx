@@ -15,29 +15,50 @@ interface ProjectionRow {
   isTerminal?: boolean;
 }
 
+type FormInputs = {
+  method: "fcf" | "eps";
+  discountRate: number | "";
+  growthRate1to5: number | "";
+  growthRate6to10: number | "";
+  terminalMultiple: number | "";
+  marginOfSafety: number | "";
+};
+
 export function DCFCalculator({ company }: DCFCalculatorProps) {
   const lastYear = company.financials[company.financials.length - 1];
 
-  const [inputs, setInputs] = useState<DCFInputs>({
+  const [inputs, setInputs] = useState<FormInputs>({
     method: "fcf",
-    discountRate: 10,
-    growthRate1to5: 8,
-    growthRate6to10: 5,
-    terminalMultiple: 15,
-    marginOfSafety: 25,
+    discountRate: "",
+    growthRate1to5: "",
+    growthRate6to10: "",
+    terminalMultiple: "",
+    marginOfSafety: "",
   });
 
+  const allFilled = inputs.discountRate !== "" && inputs.growthRate1to5 !== "" && inputs.growthRate6to10 !== "" && inputs.terminalMultiple !== "" && inputs.marginOfSafety !== "";
+
+  const numInputs: DCFInputs = {
+    method: inputs.method,
+    discountRate: Number(inputs.discountRate) || 0,
+    growthRate1to5: Number(inputs.growthRate1to5) || 0,
+    growthRate6to10: Number(inputs.growthRate6to10) || 0,
+    terminalMultiple: Number(inputs.terminalMultiple) || 0,
+    marginOfSafety: Number(inputs.marginOfSafety) || 0,
+  };
+
   const baseCF = inputs.method === "fcf" ? lastYear.fcf : lastYear.eps * company.sharesOutstanding;
-  const result: DCFResult = calculateDCF(baseCF, company.sharesOutstanding, company.currentPrice, inputs);
+  const result: DCFResult | null = allFilled ? calculateDCF(baseCF, company.sharesOutstanding, company.currentPrice, numInputs) : null;
 
   const projections = useMemo(() => {
+    if (!allFilled) return [];
     const rows: ProjectionRow[] = [];
     const baseYear = lastYear.year;
     let cf = baseCF;
-    const dr = inputs.discountRate / 100;
+    const dr = numInputs.discountRate / 100;
 
     for (let i = 1; i <= 5; i++) {
-      cf = cf * (1 + inputs.growthRate1to5 / 100);
+      cf = cf * (1 + numInputs.growthRate1to5 / 100);
       rows.push({
         year: baseYear + i,
         label: `${baseYear + i}`,
@@ -46,7 +67,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
       });
     }
     for (let i = 6; i <= 10; i++) {
-      cf = cf * (1 + inputs.growthRate6to10 / 100);
+      cf = cf * (1 + numInputs.growthRate6to10 / 100);
       rows.push({
         year: baseYear + i,
         label: `${baseYear + i}`,
@@ -54,7 +75,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
         presentValue: cf / Math.pow(1 + dr, i),
       });
     }
-    const terminalValue = cf * inputs.terminalMultiple;
+    const terminalValue = cf * numInputs.terminalMultiple;
     rows.push({
       year: baseYear + 11,
       label: `${baseYear + 10} (TV)`,
@@ -65,7 +86,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
     return rows;
   }, [baseCF, inputs, lastYear.year]);
 
-  const updateInput = (key: keyof DCFInputs, value: number | string) => {
+  const updateInput = (key: keyof FormInputs, value: number | string) => {
     setInputs(prev => ({ ...prev, [key]: value }));
   };
 
@@ -112,9 +133,10 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
                 <input
                   type="number"
                   step="0.5"
-                  value={inputs[key] as number}
-                  onChange={e => updateInput(key, parseFloat(e.target.value) || 0)}
-                  className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={inputs[key] as number | ""}
+                  placeholder="Obrigatório"
+                  onChange={e => updateInput(key, e.target.value === "" ? "" : parseFloat(e.target.value))}
+                  className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
             ))}
@@ -122,6 +144,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
         </div>
 
         {/* Results */}
+        {result ? (
         <div className="rounded-lg border border-border bg-card p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground">Resultado</h3>
@@ -148,14 +171,19 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
             ))}
           </div>
         </div>
+        ) : (
+        <div className="rounded-lg border border-dashed border-border bg-card/50 p-8 flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">Preenche todos os parâmetros para ver o resultado</p>
+        </div>
+        )}
       </div>
 
-      {/* Projection Table */}
+      {allFilled && projections.length > 0 && (
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="border-b border-border px-4 py-2.5">
           <h3 className="text-sm font-semibold text-foreground">📊 Projeção de Cash Flows</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Base: {inputs.method === "fcf" ? "Free Cash Flow" : "EPS"} {lastYear.year} = {formatM(baseCF)} · Discount Rate: {inputs.discountRate}%
+            Base: {inputs.method === "fcf" ? "Free Cash Flow" : "EPS"} {lastYear.year} = {formatM(baseCF)} · Discount Rate: {numInputs.discountRate}%
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -199,7 +227,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
               </tr>
               <tr>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">
-                  PV ({inputs.discountRate}%)
+                  PV ({numInputs.discountRate}%)
                 </td>
                 <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">—</td>
                 {projections.map(p => (
@@ -217,6 +245,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }
