@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { MOCK_COMPANIES } from "@/lib/mockData";
 import { AppLayout } from "@/components/AppLayout";
@@ -5,11 +6,18 @@ import { FinancialTable } from "@/components/FinancialTable";
 import { MetricsChart } from "@/components/MetricsChart";
 import { DCFCalculator } from "@/components/DCFCalculator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ArrowLeft, ExternalLink, RefreshCw, Link2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function CompanyAnalysis() {
   const { ticker } = useParams();
   const company = MOCK_COMPANIES.find(c => c.ticker === ticker);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const [tenKLink, setTenKLink] = useState("");
+  const { toast } = useToast();
 
   if (!company) {
     return (
