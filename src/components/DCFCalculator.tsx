@@ -144,6 +144,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
         </div>
 
         {/* Results */}
+        {result ? (
         <div className="rounded-lg border border-border bg-card p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground">Resultado</h3>
@@ -170,6 +171,11 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
             ))}
           </div>
         </div>
+        ) : (
+        <div className="rounded-lg border border-dashed border-border bg-card/50 p-8 flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">Preenche todos os parâmetros para ver o resultado</p>
+        </div>
+        )}
       </div>
 
       {/* Projection Table */}
