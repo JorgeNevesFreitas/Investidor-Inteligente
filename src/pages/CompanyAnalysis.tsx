@@ -234,8 +234,11 @@ export default function CompanyAnalysis() {
 
         {/* Tabs */}
         <Tabs defaultValue="financials" className="w-full">
-          <TabsList className="bg-secondary border border-border">
+          <TabsList className="bg-secondary border border-border flex-wrap h-auto gap-1 p-1">
             <TabsTrigger value="financials" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Financials</TabsTrigger>
+            <TabsTrigger value="income" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Income Statement</TabsTrigger>
+            <TabsTrigger value="balance" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Balance Sheet</TabsTrigger>
+            <TabsTrigger value="cashflow" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Cash Flow</TabsTrigger>
             <TabsTrigger value="ratios" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Rácios</TabsTrigger>
             <TabsTrigger value="charts" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Gráficos</TabsTrigger>
             <TabsTrigger value="valuation" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Valuation</TabsTrigger>
@@ -247,6 +250,33 @@ export default function CompanyAnalysis() {
                 <h3 className="text-sm font-semibold text-foreground">📈 Performance Financeira</h3>
               </div>
               <FinancialTable data={displayedFinancials} section="performance" />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="income" className="mt-4">
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-foreground">📄 Income Statement</h3>
+              </div>
+              <FinancialTable data={displayedFinancials} section="incomeStatement" />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="balance" className="mt-4">
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-foreground">🏦 Balance Sheet</h3>
+              </div>
+              <FinancialTable data={displayedFinancials} section="balanceSheet" />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="cashflow" className="mt-4">
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-foreground">💵 Cash Flow Statement</h3>
+              </div>
+              <FinancialTable data={displayedFinancials} section="cashFlow" />
             </div>
           </TabsContent>
 
