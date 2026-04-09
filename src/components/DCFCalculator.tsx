@@ -178,12 +178,12 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
         )}
       </div>
 
-      {/* Projection Table */}
+      {allFilled && projections.length > 0 && (
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="border-b border-border px-4 py-2.5">
           <h3 className="text-sm font-semibold text-foreground">📊 Projeção de Cash Flows</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Base: {inputs.method === "fcf" ? "Free Cash Flow" : "EPS"} {lastYear.year} = {formatM(baseCF)} · Discount Rate: {inputs.discountRate}%
+            Base: {inputs.method === "fcf" ? "Free Cash Flow" : "EPS"} {lastYear.year} = {formatM(baseCF)} · Discount Rate: {numInputs.discountRate}%
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -227,7 +227,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
               </tr>
               <tr>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">
-                  PV ({inputs.discountRate}%)
+                  PV ({numInputs.discountRate}%)
                 </td>
                 <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">—</td>
                 {projections.map(p => (
@@ -245,6 +245,7 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }
