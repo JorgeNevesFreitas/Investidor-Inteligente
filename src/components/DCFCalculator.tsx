@@ -1,10 +1,18 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Company } from "@/lib/mockData";
 import { calculateDCF, DCFInputs, DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "./StatusBadge";
 
 interface DCFCalculatorProps {
   company: Company;
+}
+
+interface ProjectionRow {
+  year: number;
+  label: string;
+  cashFlow: number;
+  presentValue: number;
+  isTerminal?: boolean;
 }
 
 export function DCFCalculator({ company }: DCFCalculatorProps) {
@@ -22,8 +30,49 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
   const baseCF = inputs.method === "fcf" ? lastYear.fcf : lastYear.eps * company.sharesOutstanding;
   const result: DCFResult = calculateDCF(baseCF, company.sharesOutstanding, company.currentPrice, inputs);
 
+  const projections = useMemo(() => {
+    const rows: ProjectionRow[] = [];
+    const baseYear = lastYear.year;
+    let cf = baseCF;
+    const dr = inputs.discountRate / 100;
+
+    for (let i = 1; i <= 5; i++) {
+      cf = cf * (1 + inputs.growthRate1to5 / 100);
+      rows.push({
+        year: baseYear + i,
+        label: `${baseYear + i}`,
+        cashFlow: cf,
+        presentValue: cf / Math.pow(1 + dr, i),
+      });
+    }
+    for (let i = 6; i <= 10; i++) {
+      cf = cf * (1 + inputs.growthRate6to10 / 100);
+      rows.push({
+        year: baseYear + i,
+        label: `${baseYear + i}`,
+        cashFlow: cf,
+        presentValue: cf / Math.pow(1 + dr, i),
+      });
+    }
+    const terminalValue = cf * inputs.terminalMultiple;
+    rows.push({
+      year: baseYear + 11,
+      label: `${baseYear + 10} (TV)`,
+      cashFlow: terminalValue,
+      presentValue: terminalValue / Math.pow(1 + dr, 10),
+      isTerminal: true,
+    });
+    return rows;
+  }, [baseCF, inputs, lastYear.year]);
+
   const updateInput = (key: keyof DCFInputs, value: number | string) => {
     setInputs(prev => ({ ...prev, [key]: value }));
+  };
+
+  const formatM = (n: number) => {
+    if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}T`;
+    if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(2)}B`;
+    return n.toFixed(2);
   };
 
   return (
@@ -98,6 +147,74 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Projection Table */}
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
+        <div className="border-b border-border px-4 py-2.5">
+          <h3 className="text-sm font-semibold text-foreground">📊 Projeção de Cash Flows</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Base: {inputs.method === "fcf" ? "Free Cash Flow" : "EPS"} {lastYear.year} = {formatM(baseCF)} · Discount Rate: {inputs.discountRate}%
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">
+                  {inputs.method === "fcf" ? "Cash Flow" : "EPS"} ({lastYear.year})
+                </th>
+                <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  {formatM(baseCF)}
+                </th>
+                {projections.map(p => (
+                  <th
+                    key={p.label}
+                    className={`px-3 py-2.5 text-right text-xs font-medium whitespace-nowrap ${
+                      p.isTerminal ? "text-primary" : "text-muted-foreground"
+                    }`}
+                  >
+                    {p.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-border/50">
+                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">
+                  Projected CF
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">—</td>
+                {projections.map(p => (
+                  <td
+                    key={p.label}
+                    className={`px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap ${
+                      p.isTerminal ? "text-primary font-semibold" : "text-foreground"
+                    }`}
+                  >
+                    {formatM(p.cashFlow)}
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">
+                  PV ({inputs.discountRate}%)
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">—</td>
+                {projections.map(p => (
+                  <td
+                    key={p.label}
+                    className={`px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap ${
+                      p.isTerminal ? "text-primary font-semibold" : "text-foreground"
+                    }`}
+                  >
+                    {formatM(p.presentValue)}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
