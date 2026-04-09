@@ -74,6 +74,17 @@ Deno.serve(async (req) => {
     // Determine base URL for StockAnalysis - we need income statement, balance sheet, and cash flow
     let baseUrl = url.trim().replace(/\/$/, '');
     
+    // Detect SEC.gov URLs and redirect user
+    if (baseUrl.includes('sec.gov')) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Links do SEC.gov usam formato iXBRL dinâmico que não é possível extrair diretamente. Por favor, usa o link do StockAnalysis. Exemplo: https://stockanalysis.com/stocks/aapl/financials/' 
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // If URL is the main financials page, build URLs for each section
     const isStockAnalysis = baseUrl.includes('stockanalysis.com');
     
