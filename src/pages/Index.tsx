@@ -5,19 +5,29 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { AppLayout } from "@/components/AppLayout";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
-const defaultDCF = {
-  method: "fcf" as const,
-  discountRate: 10,
-  growthRate1to5: 8,
-  growthRate6to10: 5,
-  terminalMultiple: 15,
-  marginOfSafety: 25,
-};
-
 export default function Dashboard() {
   const analyses = MOCK_COMPANIES.map(c => {
     const last = c.financials[c.financials.length - 1];
-    const result = calculateDCF(last.fcf, c.sharesOutstanding, c.currentPrice, defaultDCF);
+    let result: ReturnType<typeof calculateDCF> | null = null;
+    try {
+      const saved = localStorage.getItem(`dcf-inputs-${c.ticker}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const allFilled = parsed.discountRate !== "" && parsed.growthRate1to5 !== "" && parsed.growthRate6to10 !== "" && parsed.terminalMultiple !== "" && parsed.marginOfSafety !== "";
+        if (allFilled) {
+          const dcfInputs = {
+            method: parsed.method || "fcf",
+            discountRate: Number(parsed.discountRate),
+            growthRate1to5: Number(parsed.growthRate1to5),
+            growthRate6to10: Number(parsed.growthRate6to10),
+            terminalMultiple: Number(parsed.terminalMultiple),
+            marginOfSafety: Number(parsed.marginOfSafety),
+          };
+          const baseCF = dcfInputs.method === "fcf" ? last.fcf : last.eps * c.sharesOutstanding;
+          result = calculateDCF(baseCF, c.sharesOutstanding, c.currentPrice, dcfInputs);
+        }
+      }
+    } catch {}
     return { company: c, result, lastYear: last };
   });
 
