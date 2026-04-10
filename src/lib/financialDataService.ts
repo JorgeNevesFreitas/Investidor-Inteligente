@@ -82,31 +82,37 @@ export function dbFinancialsToFinancialYears(financials: DBFinancialYear[]): Fin
     const fcf = items.has('free_cash_flow') ? get('free_cash_flow') : (get('operating_cash_flow') - Math.abs(get('capital_expenditures')));
     const equity = get('shareholders_equity');
     const totalDebt = get('long_term_debt') + get('short_term_debt');
-    const bookValuePerShare = items.has('book_value_per_share') ? get('book_value_per_share') : (sharesOutstanding > 0 ? equity / sharesOutstanding : 0);
     const dividendsTotal = Math.abs(get('dividends_paid'));
+
+    // Detect if values are in raw dollars (SEC XBRL) vs already in millions (StockAnalysis)
+    // SEC data: revenue > 1 billion → it's in raw USD, convert to millions
+    const isSECScale = Math.abs(revenue) > 1e9;
+    const toM = (v: number) => isSECScale ? v / 1e6 : v;
+
+    // Shares: SEC gives individual count, convert to millions
+    const sharesM = sharesOutstanding > 1e9 ? sharesOutstanding / 1e6 : sharesOutstanding;
+    
+    // Book value per share: SEC equity / shares (both raw), or SA provides directly
+    const bookValuePerShare = items.has('book_value_per_share') 
+      ? get('book_value_per_share') 
+      : (sharesOutstanding > 0 ? equity / sharesOutstanding : 0);
+
+    // Dividends per share
     const dividendsPerShare = sharesOutstanding > 0 ? dividendsTotal / sharesOutstanding : 0;
-
-    // Convert shares from individual to millions if they seem too large
-    let sharesM = sharesOutstanding;
-    if (sharesM > 1e9) sharesM = sharesM / 1e6; // Convert from individual shares to millions
-
-    // Convert revenue-scale values to millions if in raw dollars
-    let revM = revenue;
-    if (Math.abs(revM) > 1e9) revM = revM / 1e6;
 
     years.push({
       year: fy.fiscal_year,
-      revenue: revM || revenue,
+      revenue: toM(revenue),
       revenueGrowth: null,
-      grossProfit: Math.abs(grossProfit) > 1e9 ? grossProfit / 1e6 : grossProfit,
+      grossProfit: toM(grossProfit),
       grossMargin: revenue ? (grossProfit / revenue) * 100 : 0,
-      operatingIncome: Math.abs(operatingIncome) > 1e9 ? operatingIncome / 1e6 : operatingIncome,
+      operatingIncome: toM(operatingIncome),
       ebitGrowth: null,
-      netIncome: Math.abs(netIncome) > 1e9 ? netIncome / 1e6 : netIncome,
+      netIncome: toM(netIncome),
       netIncomeGrowth: null,
       eps,
       epsGrowth: null,
-      fcf: Math.abs(fcf) > 1e9 ? fcf / 1e6 : fcf,
+      fcf: toM(fcf),
       fcfGrowth: null,
       roe: equity ? (netIncome / equity) * 100 : 0,
       netMargin: revenue ? (netIncome / revenue) * 100 : 0,
