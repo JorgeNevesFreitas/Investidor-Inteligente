@@ -14,7 +14,237 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      companies: {
+        Row: {
+          cik: string | null
+          country: string | null
+          created_at: string
+          currency: string | null
+          current_price: number | null
+          exchange: string | null
+          id: string
+          last_imported_at: string | null
+          last_refreshed_at: string | null
+          market_cap: number | null
+          name: string
+          pe_ratio: number | null
+          primary_data_source: string | null
+          region_type: Database["public"]["Enums"]["region_type"]
+          sec_enabled: boolean | null
+          sector: string | null
+          stockanalysis_url: string | null
+          ticker: string
+          updated_at: string
+        }
+        Insert: {
+          cik?: string | null
+          country?: string | null
+          created_at?: string
+          currency?: string | null
+          current_price?: number | null
+          exchange?: string | null
+          id?: string
+          last_imported_at?: string | null
+          last_refreshed_at?: string | null
+          market_cap?: number | null
+          name: string
+          pe_ratio?: number | null
+          primary_data_source?: string | null
+          region_type?: Database["public"]["Enums"]["region_type"]
+          sec_enabled?: boolean | null
+          sector?: string | null
+          stockanalysis_url?: string | null
+          ticker: string
+          updated_at?: string
+        }
+        Update: {
+          cik?: string | null
+          country?: string | null
+          created_at?: string
+          currency?: string | null
+          current_price?: number | null
+          exchange?: string | null
+          id?: string
+          last_imported_at?: string | null
+          last_refreshed_at?: string | null
+          market_cap?: number | null
+          name?: string
+          pe_ratio?: number | null
+          primary_data_source?: string | null
+          region_type?: Database["public"]["Enums"]["region_type"]
+          sec_enabled?: boolean | null
+          sector?: string | null
+          stockanalysis_url?: string | null
+          ticker?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      financial_line_items: {
+        Row: {
+          confidence_score: number | null
+          created_at: string
+          id: string
+          normalized_key: string
+          normalized_value: number | null
+          raw_value: number | null
+          source_label: string | null
+          source_reference: string | null
+          source_type: Database["public"]["Enums"]["source_type"] | null
+          statement_type: Database["public"]["Enums"]["statement_type"]
+          statement_year_id: string
+          unit: string | null
+          updated_at: string
+        }
+        Insert: {
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          normalized_key: string
+          normalized_value?: number | null
+          raw_value?: number | null
+          source_label?: string | null
+          source_reference?: string | null
+          source_type?: Database["public"]["Enums"]["source_type"] | null
+          statement_type: Database["public"]["Enums"]["statement_type"]
+          statement_year_id: string
+          unit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          normalized_key?: string
+          normalized_value?: number | null
+          raw_value?: number | null
+          source_label?: string | null
+          source_reference?: string | null
+          source_type?: Database["public"]["Enums"]["source_type"] | null
+          statement_type?: Database["public"]["Enums"]["statement_type"]
+          statement_year_id?: string
+          unit?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_line_items_statement_year_id_fkey"
+            columns: ["statement_year_id"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_years"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_statement_years: {
+        Row: {
+          checksum: string | null
+          company_id: string
+          created_at: string
+          currency: string | null
+          data_status: Database["public"]["Enums"]["data_status"] | null
+          filing_date: string | null
+          filing_type: string | null
+          fiscal_year: number
+          id: string
+          import_method: Database["public"]["Enums"]["import_method"] | null
+          period_type: string
+          source_type: Database["public"]["Enums"]["source_type"] | null
+          source_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          checksum?: string | null
+          company_id: string
+          created_at?: string
+          currency?: string | null
+          data_status?: Database["public"]["Enums"]["data_status"] | null
+          filing_date?: string | null
+          filing_type?: string | null
+          fiscal_year: number
+          id?: string
+          import_method?: Database["public"]["Enums"]["import_method"] | null
+          period_type?: string
+          source_type?: Database["public"]["Enums"]["source_type"] | null
+          source_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          checksum?: string | null
+          company_id?: string
+          created_at?: string
+          currency?: string | null
+          data_status?: Database["public"]["Enums"]["data_status"] | null
+          filing_date?: string | null
+          filing_type?: string | null
+          fiscal_year?: number
+          id?: string
+          import_method?: Database["public"]["Enums"]["import_method"] | null
+          period_type?: string
+          source_type?: Database["public"]["Enums"]["source_type"] | null
+          source_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_statement_years_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      import_jobs: {
+        Row: {
+          company_id: string
+          created_at: string
+          error_details: string | null
+          finished_at: string | null
+          id: string
+          job_type: Database["public"]["Enums"]["job_type"]
+          log_summary: string | null
+          source_type: Database["public"]["Enums"]["source_type"] | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["job_status"]
+          years_imported: number[] | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          error_details?: string | null
+          finished_at?: string | null
+          id?: string
+          job_type: Database["public"]["Enums"]["job_type"]
+          log_summary?: string | null
+          source_type?: Database["public"]["Enums"]["source_type"] | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["job_status"]
+          years_imported?: number[] | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          error_details?: string | null
+          finished_at?: string | null
+          id?: string
+          job_type?: Database["public"]["Enums"]["job_type"]
+          log_summary?: string | null
+          source_type?: Database["public"]["Enums"]["source_type"] | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["job_status"]
+          years_imported?: number[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_jobs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +253,22 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      data_status: "draft" | "imported" | "verified" | "stale"
+      import_method:
+        | "auto_sec"
+        | "auto_stockanalysis"
+        | "manual_link"
+        | "manual_entry"
+      job_status: "pending" | "running" | "completed" | "failed" | "partial"
+      job_type: "import" | "refresh" | "import_from_stockanalysis_link"
+      region_type: "US" | "NON_US"
+      source_type:
+        | "SEC_XBRL"
+        | "SEC_FILING_FALLBACK"
+        | "STOCKANALYSIS_LINK"
+        | "STOCKANALYSIS_AUTO"
+        | "MANUAL"
+      statement_type: "income_statement" | "balance_sheet" | "cash_flow"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +395,25 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      data_status: ["draft", "imported", "verified", "stale"],
+      import_method: [
+        "auto_sec",
+        "auto_stockanalysis",
+        "manual_link",
+        "manual_entry",
+      ],
+      job_status: ["pending", "running", "completed", "failed", "partial"],
+      job_type: ["import", "refresh", "import_from_stockanalysis_link"],
+      region_type: ["US", "NON_US"],
+      source_type: [
+        "SEC_XBRL",
+        "SEC_FILING_FALLBACK",
+        "STOCKANALYSIS_LINK",
+        "STOCKANALYSIS_AUTO",
+        "MANUAL",
+      ],
+      statement_type: ["income_statement", "balance_sheet", "cash_flow"],
+    },
   },
 } as const
