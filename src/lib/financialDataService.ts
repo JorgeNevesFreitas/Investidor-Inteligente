@@ -163,13 +163,6 @@ export function dbToCompany(dbCompany: DBCompany, financials: FinancialYear[]): 
 
 // API functions
 export async function getCompanyData(ticker: string): Promise<CompanyData> {
-  const { data, error } = await supabase.functions.invoke('company-data', {
-    body: null,
-    method: 'GET',
-    headers: {},
-  });
-
-  // Since we can't pass query params easily through invoke, use the POST method
   const response = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/company-data?action=get&ticker=${encodeURIComponent(ticker.toUpperCase())}`,
     {
