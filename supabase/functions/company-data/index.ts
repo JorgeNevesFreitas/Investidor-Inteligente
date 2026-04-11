@@ -27,20 +27,26 @@ Deno.serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
-      // Find company
-      let query = supabase.from('companies').select('*');
-      if (companyId) query = query.eq('id', companyId);
-      else query = query.eq('ticker', ticker!.toUpperCase());
+      let companyQuery = supabase.from('companies').select('*');
+      if (companyId) {
+        companyQuery = companyQuery.eq('id', companyId);
+      } else {
+        companyQuery = companyQuery
+          .eq('ticker', ticker!.toUpperCase())
+          .order('last_imported_at', { ascending: false, nullsFirst: false })
+          .order('updated_at', { ascending: false });
+      }
 
-      const { data: company, error: companyErr } = await query.maybeSingle();
+      const { data: companyRows, error: companyErr } = await companyQuery.limit(1);
       if (companyErr) throw companyErr;
-      
+
+      const company = companyRows?.[0] || null;
+
       if (!company) {
         return new Response(JSON.stringify({ success: true, company: null, financials: [] }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
-      // Get all financial years with line items
       const { data: years, error: yearsErr } = await supabase
         .from('financial_statement_years')
         .select('*, financial_line_items(*)')
@@ -49,7 +55,6 @@ Deno.serve(async (req) => {
 
       if (yearsErr) throw yearsErr;
 
-      // Get import history
       const { data: imports } = await supabase
         .from('import_jobs')
         .select('*')
@@ -65,7 +70,6 @@ Deno.serve(async (req) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // POST: search companies
     if (action === 'search') {
       const body = await req.json();
       const searchTicker = body.ticker?.toUpperCase();
@@ -75,11 +79,11 @@ Deno.serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
-      // Search in DB first
       const { data: dbResults } = await supabase
         .from('companies')
         .select('id, ticker, name, exchange, region_type, last_imported_at, stockanalysis_url')
         .ilike('ticker', `%${searchTicker}%`)
+        .order('last_imported_at', { ascending: false, nullsFirst: false })
         .limit(10);
 
       return new Response(JSON.stringify({
@@ -88,7 +92,6 @@ Deno.serve(async (req) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // POST: list all companies with data
     if (action === 'list') {
       const { data: companies } = await supabase
         .from('companies')
