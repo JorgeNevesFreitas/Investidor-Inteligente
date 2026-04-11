@@ -7,9 +7,7 @@ const corsHeaders = {
 
 const SEC_USER_AGENT = 'LovableFinApp/1.0 (contact@lovable.dev)';
 
-// XBRL tag mappings to normalized keys
 const XBRL_MAPPINGS: Record<string, { tags: string[]; statementType: string }> = {
-  // Income Statement
   revenue: { tags: ['Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet', 'SalesRevenueGoodsNet', 'RevenueFromContractWithCustomerIncludingAssessedTax'], statementType: 'income_statement' },
   cost_of_revenue: { tags: ['CostOfGoodsAndServicesSold', 'CostOfRevenue', 'CostOfGoodsSold'], statementType: 'income_statement' },
   gross_profit: { tags: ['GrossProfit'], statementType: 'income_statement' },
@@ -22,7 +20,6 @@ const XBRL_MAPPINGS: Record<string, { tags: string[]; statementType: string }> =
   interest_expense: { tags: ['InterestExpense', 'InterestExpenseDebt'], statementType: 'income_statement' },
   depreciation_amortization: { tags: ['DepreciationDepletionAndAmortization', 'DepreciationAndAmortization'], statementType: 'income_statement' },
   ebitda: { tags: ['EarningsBeforeInterestTaxesDepreciationAndAmortization'], statementType: 'income_statement' },
-  // Balance Sheet
   cash_and_equivalents: { tags: ['CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsAndShortTermInvestments'], statementType: 'balance_sheet' },
   current_assets: { tags: ['AssetsCurrent'], statementType: 'balance_sheet' },
   total_assets: { tags: ['Assets'], statementType: 'balance_sheet' },
@@ -32,7 +29,6 @@ const XBRL_MAPPINGS: Record<string, { tags: string[]; statementType: string }> =
   short_term_debt: { tags: ['ShortTermBorrowings', 'CommercialPaper'], statementType: 'balance_sheet' },
   shareholders_equity: { tags: ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'], statementType: 'balance_sheet' },
   shares_outstanding: { tags: ['CommonStockSharesOutstanding', 'EntityCommonStockSharesOutstanding'], statementType: 'balance_sheet' },
-  // Cash Flow
   operating_cash_flow: { tags: ['NetCashProvidedByUsedInOperatingActivities'], statementType: 'cash_flow' },
   capital_expenditures: { tags: ['PaymentsToAcquirePropertyPlantAndEquipment'], statementType: 'cash_flow' },
   dividends_paid: { tags: ['PaymentsOfDividends', 'PaymentsOfDividendsCommonStock'], statementType: 'cash_flow' },
@@ -41,12 +37,21 @@ const XBRL_MAPPINGS: Record<string, { tags: string[]; statementType: string }> =
 
 interface XBRLFact {
   val: number;
+  start?: string;
   end: string;
-  fy: number;
-  fp: string;
-  form: string;
+  fy?: number;
+  fp?: string;
+  form?: string;
+  frame?: string | null;
   accn?: string;
   filed?: string;
+}
+
+interface ExtractedFact {
+  value: number;
+  sourceTag: string;
+  endDate: string;
+  filedDate: string | null;
 }
 
 async function fetchWithRetry(url: string, headers: Record<string, string>, retries = 3): Promise<Response> {
@@ -56,16 +61,78 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
       if (resp.status === 429) {
         const wait = Math.pow(2, i + 1) * 1000;
         console.log(`Rate limited, waiting ${wait}ms...`);
-        await new Promise(r => setTimeout(r, wait));
+        await new Promise((r) => setTimeout(r, wait));
         continue;
       }
       return resp;
     } catch (e) {
       if (i === retries - 1) throw e;
-      await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
+      await new Promise((r) => setTimeout(r, Math.pow(2, i) * 1000));
     }
   }
   throw new Error('Max retries exceeded');
+}
+
+function parseSecDate(dateStr?: string | null): Date | null {
+  if (!dateStr) return null;
+
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return null;
+  }
+
+  return date;
+}
+
+function getFactEndYear(entry: XBRLFact): number | null {
+  const endDate = parseSecDate(entry.end);
+  return endDate ? endDate.getUTCFullYear() : null;
+}
+
+function getFactPeriodDays(entry: XBRLFact): number | null {
+  const startDate = parseSecDate(entry.start);
+  const endDate = parseSecDate(entry.end);
+  if (!startDate || !endDate) return null;
+  return Math.round((endDate.getTime() - startDate.getTime()) / 86400000);
+}
+
+function isAnnual10KFact(entry: XBRLFact): boolean {
+  if (entry.fp !== 'FY') return false;
+  if (entry.form !== '10-K' && entry.form !== '10-K/A') return false;
+  if (!entry.end) return false;
+
+  const periodDays = getFactPeriodDays(entry);
+  if (periodDays === null) return true;
+  return periodDays >= 300 && periodDays <= 380;
+}
+
+function compareDatesDesc(a?: string | null, b?: string | null): number {
+  const aDate = parseSecDate(a);
+  const bDate = parseSecDate(b);
+
+  if (aDate && bDate) return bDate.getTime() - aDate.getTime();
+  if (aDate) return -1;
+  if (bDate) return 1;
+  return 0;
+}
+
+function chooseBestAnnualFact(entries: XBRLFact[]): XBRLFact {
+  return [...entries].sort((a, b) => {
+    const filedCompare = compareDatesDesc(a.filed, b.filed);
+    if (filedCompare !== 0) return filedCompare;
+
+    const endCompare = compareDatesDesc(a.end, b.end);
+    if (endCompare !== 0) return endCompare;
+
+    return 0;
+  })[0];
 }
 
 async function resolveCIK(ticker: string): Promise<{ cik: string; name: string } | null> {
@@ -75,7 +142,7 @@ async function resolveCIK(ticker: string): Promise<{ cik: string; name: string }
   );
   if (!resp.ok) throw new Error(`Failed to fetch company tickers: ${resp.status}`);
   const data = await resp.json();
-  
+
   const upperTicker = ticker.toUpperCase();
   for (const key of Object.keys(data)) {
     const entry = data[key];
@@ -92,44 +159,53 @@ async function resolveCIK(ticker: string): Promise<{ cik: string; name: string }
 function extractAnnualFacts(
   facts: Record<string, any>,
   targetYears: number[]
-): Map<number, Map<string, { value: number; sourceTag: string }>> {
-  const yearData = new Map<number, Map<string, { value: number; sourceTag: string }>>();
-  
+): Map<number, Map<string, ExtractedFact>> {
+  const yearData = new Map<number, Map<string, ExtractedFact>>();
+  const targetYearSet = new Set(targetYears);
   const usGaap = facts['us-gaap'] || {};
-  
+
   for (const [normalizedKey, mapping] of Object.entries(XBRL_MAPPINGS)) {
     for (const tag of mapping.tags) {
       const concept = usGaap[tag];
-      if (!concept) continue;
-      
-      // Try USD units first, then shares
-      const units = concept.units || {};
-      const entries: XBRLFact[] = units['USD'] || units['shares'] || units['USD/shares'] || [];
-      
-      // Filter for annual 10-K filings
-      const annualEntries = entries.filter((e: XBRLFact) => 
-        e.fp === 'FY' && (e.form === '10-K' || e.form === '10-K/A') && targetYears.includes(e.fy)
+      if (!concept?.units) continue;
+
+      const entries = Object.values(concept.units).flatMap((unitEntries) =>
+        Array.isArray(unitEntries) ? (unitEntries as XBRLFact[]) : []
       );
-      
-      // For each target year, get the most recent filing
-      for (const fy of targetYears) {
-        const yearEntries = annualEntries.filter(e => e.fy === fy);
-        if (yearEntries.length === 0) continue;
-        
-        // Pick the entry with the latest filing date
-        const best = yearEntries.sort((a, b) => (b.filed || b.end).localeCompare(a.filed || a.end))[0];
-        
-        if (!yearData.has(fy)) yearData.set(fy, new Map());
-        const yearMap = yearData.get(fy)!;
-        
-        // Only set if not already set (first matching tag wins)
+
+      const annualEntries = entries.filter(isAnnual10KFact);
+      const entriesByEndYear = new Map<number, XBRLFact[]>();
+
+      for (const entry of annualEntries) {
+        const endYear = getFactEndYear(entry);
+        if (!endYear || !targetYearSet.has(endYear)) continue;
+
+        if (!entriesByEndYear.has(endYear)) {
+          entriesByEndYear.set(endYear, []);
+        }
+        entriesByEndYear.get(endYear)!.push(entry);
+      }
+
+      for (const [endYear, yearEntries] of entriesByEndYear.entries()) {
+        const best = chooseBestAnnualFact(yearEntries);
+
+        if (!yearData.has(endYear)) {
+          yearData.set(endYear, new Map());
+        }
+
+        const yearMap = yearData.get(endYear)!;
         if (!yearMap.has(normalizedKey)) {
-          yearMap.set(normalizedKey, { value: best.val, sourceTag: tag });
+          yearMap.set(normalizedKey, {
+            value: best.val,
+            sourceTag: tag,
+            endDate: best.end,
+            filedDate: best.filed || null,
+          });
         }
       }
     }
   }
-  
+
   return yearData;
 }
 
@@ -151,7 +227,6 @@ Deno.serve(async (req) => {
 
     console.log(`Starting SEC import for ticker: ${ticker}`);
 
-    // 1. Resolve ticker to CIK
     const cikResult = await resolveCIK(ticker);
     if (!cikResult) {
       return new Response(JSON.stringify({ success: false, error: `Ticker "${ticker}" not found in SEC database. This may not be a US company.` }),
@@ -160,62 +235,50 @@ Deno.serve(async (req) => {
 
     console.log(`Resolved ${ticker} to CIK ${cikResult.cik} (${cikResult.name})`);
 
-    // 2. Upsert company
-    const { data: company, error: companyErr } = await supabase
+    const { data: existingCompany } = await supabase
       .from('companies')
-      .upsert({
-        ticker: ticker.toUpperCase(),
-        name: cikResult.name,
-        cik: cikResult.cik,
-        region_type: 'US' as const,
-        sec_enabled: true,
-        primary_data_source: 'SEC_XBRL',
-        country: 'US',
-      }, { onConflict: 'ticker,exchange' })
-      .select()
-      .single();
+      .select('id')
+      .eq('ticker', ticker.toUpperCase())
+      .order('last_imported_at', { ascending: false, nullsFirst: false })
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    // If upsert failed due to conflict, try to find existing
     let companyId: string;
-    if (companyErr) {
-      const { data: existing } = await supabase
+    if (existingCompany) {
+      companyId = existingCompany.id;
+      const { error: updateErr } = await supabase
         .from('companies')
-        .select('id')
-        .eq('ticker', ticker.toUpperCase())
-        .single();
-      if (!existing) {
-        // Insert without exchange constraint
-        const { data: newCompany, error: insertErr } = await supabase
-          .from('companies')
-          .insert({
-            ticker: ticker.toUpperCase(),
-            name: cikResult.name,
-            cik: cikResult.cik,
-            region_type: 'US' as const,
-            sec_enabled: true,
-            primary_data_source: 'SEC_XBRL',
-            country: 'US',
-          })
-          .select()
-          .single();
-        if (insertErr) throw new Error(`Failed to create company: ${insertErr.message}`);
-        companyId = newCompany!.id;
-      } else {
-        companyId = existing.id;
-        // Update CIK and SEC info
-        await supabase.from('companies').update({
-          cik: cikResult.cik,
+        .update({
           name: cikResult.name,
+          cik: cikResult.cik,
+          region_type: 'US' as const,
           sec_enabled: true,
           primary_data_source: 'SEC_XBRL',
-          region_type: 'US' as const,
-        }).eq('id', companyId);
-      }
+          country: 'US',
+        })
+        .eq('id', companyId);
+
+      if (updateErr) throw new Error(`Failed to update company: ${updateErr.message}`);
     } else {
-      companyId = company!.id;
+      const { data: newCompany, error: insertErr } = await supabase
+        .from('companies')
+        .insert({
+          ticker: ticker.toUpperCase(),
+          name: cikResult.name,
+          cik: cikResult.cik,
+          region_type: 'US' as const,
+          sec_enabled: true,
+          primary_data_source: 'SEC_XBRL',
+          country: 'US',
+        })
+        .select()
+        .single();
+
+      if (insertErr) throw new Error(`Failed to create company: ${insertErr.message}`);
+      companyId = newCompany!.id;
     }
 
-    // 3. Create import job
     const { data: job } = await supabase.from('import_jobs').insert({
       company_id: companyId,
       job_type: 'import' as const,
@@ -223,10 +286,9 @@ Deno.serve(async (req) => {
       status: 'running' as const,
     }).select().single();
 
-    // 4. Fetch company facts from SEC
     const factsUrl = `https://data.sec.gov/api/xbrl/companyfacts/CIK${cikResult.cik}.json`;
     console.log(`Fetching company facts from: ${factsUrl}`);
-    
+
     const factsResp = await fetchWithRetry(factsUrl, {
       'User-Agent': SEC_USER_AGENT,
       'Accept': 'application/json',
@@ -248,11 +310,9 @@ Deno.serve(async (req) => {
     const factsData = await factsResp.json();
     const facts = factsData.facts || {};
 
-    // 5. Determine target years (last 10 years)
     const currentYear = new Date().getFullYear();
     const targetYears = Array.from({ length: 12 }, (_, i) => currentYear - i);
 
-    // 6. Extract annual data
     const yearData = extractAnnualFacts(facts, targetYears);
     console.log(`Extracted data for ${yearData.size} years: ${Array.from(yearData.keys()).sort().join(', ')}`);
 
@@ -268,11 +328,14 @@ Deno.serve(async (req) => {
         { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // 7. Persist to DB
     const importedYears: number[] = [];
-    
-    for (const [fy, items] of yearData.entries()) {
-      // Upsert financial_statement_years
+
+    for (const [fy, items] of Array.from(yearData.entries()).sort((a, b) => a[0] - b[0])) {
+      const latestFiledDate = Array.from(items.values())
+        .map((item) => item.filedDate)
+        .filter((date): date is string => Boolean(date))
+        .sort((a, b) => b.localeCompare(a))[0] || null;
+
       const { data: existingYear } = await supabase
         .from('financial_statement_years')
         .select('id')
@@ -289,6 +352,7 @@ Deno.serve(async (req) => {
           data_status: 'imported' as const,
           source_url: factsUrl,
           filing_type: '10-K',
+          filing_date: latestFiledDate,
           updated_at: new Date().toISOString(),
         }).eq('id', yearId);
       } else {
@@ -302,15 +366,18 @@ Deno.serve(async (req) => {
             data_status: 'imported' as const,
             source_url: factsUrl,
             filing_type: '10-K',
+            filing_date: latestFiledDate,
           })
           .select()
           .single();
-        if (yearErr) { console.error(`Failed to insert year ${fy}:`, yearErr); continue; }
+        if (yearErr) {
+          console.error(`Failed to insert year ${fy}:`, yearErr);
+          continue;
+        }
         yearId = newYear!.id;
       }
 
-      // Upsert line items
-      for (const [normalizedKey, { value, sourceTag }] of items.entries()) {
+      for (const [normalizedKey, fact] of items.entries()) {
         const mapping = XBRL_MAPPINGS[normalizedKey];
         const statementType = mapping?.statementType || 'income_statement';
 
@@ -318,16 +385,16 @@ Deno.serve(async (req) => {
           statement_year_id: yearId,
           normalized_key: normalizedKey,
           statement_type: statementType as any,
-          raw_value: value,
-          normalized_value: value,
-          source_label: sourceTag,
+          raw_value: fact.value,
+          normalized_value: fact.value,
+          source_label: fact.sourceTag,
           source_type: 'SEC_XBRL' as const,
           confidence_score: 1.0,
           unit: normalizedKey === 'shares_outstanding' ? 'shares' : (normalizedKey.startsWith('eps') ? 'USD/share' : 'USD'),
+          source_reference: fact.endDate,
         }, { onConflict: 'statement_year_id,normalized_key' });
       }
 
-      // Calculate and store derived items (free_cash_flow)
       const ocf = items.get('operating_cash_flow');
       const capex = items.get('capital_expenditures');
       if (ocf && capex) {
@@ -342,19 +409,18 @@ Deno.serve(async (req) => {
           source_type: 'SEC_XBRL' as const,
           confidence_score: 0.95,
           unit: 'USD',
+          source_reference: latestFiledDate,
         }, { onConflict: 'statement_year_id,normalized_key' });
       }
 
       importedYears.push(fy);
     }
 
-    // 8. Update company timestamps
     await supabase.from('companies').update({
       last_imported_at: new Date().toISOString(),
       last_refreshed_at: new Date().toISOString(),
     }).eq('id', companyId);
 
-    // 9. Complete import job
     if (job) {
       await supabase.from('import_jobs').update({
         status: 'completed' as const,
