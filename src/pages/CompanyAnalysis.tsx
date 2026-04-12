@@ -392,7 +392,62 @@ export default function CompanyAnalysis() {
           </div>
         )}
 
-        {/* KPIs */}
+        {/* Specific year import */}
+        {showYearImport && (
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3">
+            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Input
+              placeholder="Ex: 2024"
+              type="number"
+              value={specificYear}
+              onChange={(e) => setSpecificYear(e.target.value)}
+              className="h-8 text-xs w-28"
+              min={1990}
+              max={new Date().getFullYear() + 1}
+            />
+            <Button
+              size="sm"
+              disabled={!specificYear.trim() || isImporting}
+              onClick={handleImportSpecificYear}
+              className="text-xs shrink-0"
+            >
+              {isImporting ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />A importar...</>
+              ) : (
+                <>Importar ano {specificYear}</>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {/* Last import result */}
+        {lastImportResult && lastImportResult.success && (
+          <div className="rounded-lg border border-border bg-card p-3 space-y-1.5 text-xs">
+            <div className="flex items-center gap-2 font-medium text-foreground">
+              <CheckCircle2 className="h-3.5 w-3.5 text-positive" />
+              Resultado da última atualização
+            </div>
+            <div className="flex flex-wrap gap-3 text-muted-foreground">
+              {(lastImportResult.years_imported?.length ?? 0) > 0 && (
+                <span className="text-positive">Novos: {lastImportResult.years_imported!.join(', ')}</span>
+              )}
+              {(lastImportResult.years_updated?.length ?? 0) > 0 && (
+                <span className="text-primary">Atualizados: {lastImportResult.years_updated!.join(', ')}</span>
+              )}
+              {(lastImportResult.years_skipped?.length ?? 0) > 0 && (
+                <span>Sem alterações: {lastImportResult.years_skipped!.join(', ')}</span>
+              )}
+            </div>
+            {(lastImportResult.missing_years?.length ?? 0) > 0 && (
+              <div className="flex items-center gap-1 text-destructive">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>Anos em falta na BD: {lastImportResult.missing_years!.join(', ')}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+
         {kpis.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
             {kpis.map(({ label, value }) => (
