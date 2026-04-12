@@ -50,7 +50,6 @@ function getVal(rows: Map<string, string[]>, labels: string[], colIdx: number): 
   return null;
 }
 
-// Mapping from StockAnalysis labels to normalized keys
 const SA_INCOME_MAPPINGS: Record<string, { labels: string[]; statementType: string }> = {
   revenue: { labels: ['Revenue'], statementType: 'income_statement' },
   cost_of_revenue: { labels: ['Cost of Revenue'], statementType: 'income_statement' },
@@ -87,6 +86,26 @@ const SA_CASHFLOW_MAPPINGS: Record<string, { labels: string[]; statementType: st
   share_repurchases: { labels: ['Share Repurchases', 'Buybacks'], statementType: 'cash_flow' },
 };
 
+function computeChecksumSA(allMappings: Record<string, any>, incomeRows: Map<string, string[]>, balanceRows: Map<string, string[]>, cashFlowRows: Map<string, string[]>, incIdx: number, bsIdx: number, cfIdx: number): string {
+  const parts: string[] = [];
+  for (const [key, mapping] of Object.entries(allMappings)) {
+    let rows: Map<string, string[]>;
+    let colIdx: number;
+    if (mapping.statementType === 'income_statement') { rows = incomeRows; colIdx = incIdx; }
+    else if (mapping.statementType === 'balance_sheet') { rows = balanceRows; colIdx = bsIdx; }
+    else { rows = cashFlowRows; colIdx = cfIdx; }
+    const val = getVal(rows, mapping.labels, colIdx);
+    if (val !== null) parts.push(`${key}:${val}`);
+  }
+  let hash = 0;
+  const str = parts.sort().join('|');
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash.toString(36);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -97,7 +116,7 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    const { ticker, url, company_name, exchange } = await req.json();
+    const { ticker, url, company_name, exchange, specific_year, is_incremental = true } = await req.json();
 
     if (!ticker && !url) {
       return new Response(JSON.stringify({ success: false, error: 'Ticker or URL is required' }),
@@ -110,32 +129,28 @@ Deno.serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Determine the StockAnalysis base URL
     let stockBase: string;
     let effectiveTicker = ticker?.toUpperCase();
     
     if (url) {
       const match = url.match(/(https:\/\/stockanalysis\.com\/stocks\/[^/]+)/);
       if (!match) {
-        return new Response(JSON.stringify({ success: false, error: 'Invalid StockAnalysis URL. Expected format: https://stockanalysis.com/stocks/TICKER/' }),
+        return new Response(JSON.stringify({ success: false, error: 'Invalid StockAnalysis URL' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
       stockBase = match[1];
-      // Extract ticker from URL
       const tickerMatch = stockBase.match(/\/stocks\/([^/]+)$/);
       if (tickerMatch) effectiveTicker = tickerMatch[1].toUpperCase();
     } else {
       stockBase = `https://stockanalysis.com/stocks/${ticker.toLowerCase()}`;
     }
 
-    console.log(`Starting StockAnalysis import for ${effectiveTicker} from ${stockBase}`);
+    console.log(`StockAnalysis import for ${effectiveTicker} (incremental=${is_incremental}, specific_year=${specific_year || 'none'})`);
 
     // Upsert company
     const { data: existingCompany } = await supabase
-      .from('companies')
-      .select('id, region_type')
-      .eq('ticker', effectiveTicker)
-      .maybeSingle();
+      .from('companies').select('id, region_type')
+      .eq('ticker', effectiveTicker).maybeSingle();
 
     let companyId: string;
     if (existingCompany) {
@@ -148,31 +163,34 @@ Deno.serve(async (req) => {
       }).eq('id', companyId);
     } else {
       const { data: newCompany, error: insertErr } = await supabase
-        .from('companies')
-        .insert({
-          ticker: effectiveTicker,
-          name: company_name || effectiveTicker,
-          exchange: exchange || null,
-          region_type: 'NON_US' as const,
-          stockanalysis_url: stockBase,
-          primary_data_source: 'STOCKANALYSIS',
-        })
-        .select()
-        .single();
+        .from('companies').insert({
+          ticker: effectiveTicker, name: company_name || effectiveTicker,
+          exchange: exchange || null, region_type: 'NON_US' as const,
+          stockanalysis_url: stockBase, primary_data_source: 'STOCKANALYSIS',
+        }).select().single();
       if (insertErr) throw new Error(`Failed to create company: ${insertErr.message}`);
       companyId = newCompany!.id;
     }
 
-    // Create import job
+    // Get existing years for incremental comparison
+    const { data: existingYears } = await supabase
+      .from('financial_statement_years')
+      .select('id, fiscal_year, checksum')
+      .eq('company_id', companyId);
+
+    const existingYearMap = new Map<number, { id: string; checksum: string | null }>();
+    for (const ey of existingYears || []) {
+      existingYearMap.set(ey.fiscal_year, { id: ey.id, checksum: ey.checksum });
+    }
+
     const jobType = url ? 'import_from_stockanalysis_link' : 'import';
     const { data: job } = await supabase.from('import_jobs').insert({
-      company_id: companyId,
-      job_type: jobType as any,
+      company_id: companyId, job_type: jobType as any,
       source_type: (url ? 'STOCKANALYSIS_LINK' : 'STOCKANALYSIS_AUTO') as any,
       status: 'running' as any,
     }).select().single();
 
-    // Scrape all three financial pages
+    // Scrape all three pages
     const pages = [
       { url: `${stockBase}/financials/`, type: 'income' },
       { url: `${stockBase}/financials/balance-sheet/`, type: 'balance' },
@@ -180,39 +198,24 @@ Deno.serve(async (req) => {
     ];
 
     const allMarkdown: Record<string, string> = {};
-    
     for (const page of pages) {
       console.log(`Scraping: ${page.url}`);
       try {
         const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            url: page.url,
-            formats: ['markdown'],
-            onlyMainContent: true,
-          }),
+          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: page.url, formats: ['markdown'], onlyMainContent: true }),
         });
         const data = await response.json();
-        if (response.ok) {
-          allMarkdown[page.type] = data.data?.markdown || data.markdown || '';
-        } else {
-          console.error(`Failed to scrape ${page.type}:`, data);
-        }
-      } catch (e) {
-        console.error(`Error scraping ${page.type}:`, e);
-      }
+        if (response.ok) allMarkdown[page.type] = data.data?.markdown || data.markdown || '';
+        else console.error(`Failed to scrape ${page.type}:`, data);
+      } catch (e) { console.error(`Error scraping ${page.type}:`, e); }
     }
 
-    // Parse tables
     const incomeRows = extractTableRows(allMarkdown['income'] || '');
     const balanceRows = extractTableRows(allMarkdown['balance'] || '');
     const cashFlowRows = extractTableRows(allMarkdown['cashflow'] || '');
 
-    // Get years from income statement
     const { years, indices } = getYearColumns(incomeRows);
     const bsYears = getYearColumns(balanceRows);
     const cfYears = getYearColumns(cashFlowRows);
@@ -220,132 +223,142 @@ Deno.serve(async (req) => {
     console.log(`Found years: ${years.join(', ')}`);
 
     if (years.length === 0) {
-      if (job) {
-        await supabase.from('import_jobs').update({
-          status: 'failed' as any,
-          finished_at: new Date().toISOString(),
-          error_details: 'No year columns found in financial tables',
-        }).eq('id', job.id);
-      }
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Could not find year columns in the financial tables. Check the StockAnalysis URL.',
-      }), { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (job) await supabase.from('import_jobs').update({ status: 'failed' as any, finished_at: new Date().toISOString(), error_details: 'No year columns found' }).eq('id', job.id);
+      return new Response(JSON.stringify({ success: false, error: 'Could not find year columns in the financial tables.' }),
+        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Import all years (up to 10 most recent)
-    const yearsToImport = years.slice(0, 10);
+    // Determine which years to process
+    let yearsToImport: number[];
+    let indicesToUse: number[];
+    
+    if (specific_year) {
+      const idx = years.indexOf(specific_year);
+      if (idx === -1) {
+        if (job) await supabase.from('import_jobs').update({ status: 'failed' as any, finished_at: new Date().toISOString(), error_details: `Year ${specific_year} not found in source` }).eq('id', job.id);
+        return new Response(JSON.stringify({ success: false, error: `Year ${specific_year} not found. Available: ${years.join(', ')}` }),
+          { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      yearsToImport = [specific_year];
+      indicesToUse = [indices[idx]];
+    } else {
+      yearsToImport = years.slice(0, 10);
+      indicesToUse = indices.slice(0, 10);
+    }
+
     const importedYears: number[] = [];
+    const updatedYears: number[] = [];
+    const skippedYears: number[] = [];
+    const logs: string[] = [];
     const sourceType = url ? 'STOCKANALYSIS_LINK' : 'STOCKANALYSIS_AUTO';
-    const importMethod = url ? 'manual_link' : 'auto_stockanalysis';
+    const importMethod = specific_year ? 'manual_entry' : (url ? 'manual_link' : 'auto_stockanalysis');
+    const allMappings = { ...SA_INCOME_MAPPINGS, ...SA_BALANCE_MAPPINGS, ...SA_CASHFLOW_MAPPINGS };
 
     for (let yi = 0; yi < yearsToImport.length; yi++) {
       const fy = yearsToImport[yi];
-      const incIdx = indices[yi];
+      const incIdx = indicesToUse[yi];
 
-      // Find matching balance sheet and cash flow indices
       let bsIdx = 0;
-      for (let i = 0; i < bsYears.years.length; i++) {
-        if (bsYears.years[i] === fy) { bsIdx = bsYears.indices[i]; break; }
-      }
+      for (let i = 0; i < bsYears.years.length; i++) { if (bsYears.years[i] === fy) { bsIdx = bsYears.indices[i]; break; } }
       let cfIdx = 0;
-      for (let i = 0; i < cfYears.years.length; i++) {
-        if (cfYears.years[i] === fy) { cfIdx = cfYears.indices[i]; break; }
+      for (let i = 0; i < cfYears.years.length; i++) { if (cfYears.years[i] === fy) { cfIdx = cfYears.indices[i]; break; } }
+
+      // Compute checksum for this year
+      const checksum = computeChecksumSA(allMappings, incomeRows, balanceRows, cashFlowRows, incIdx, bsIdx, cfIdx);
+      const existing = existingYearMap.get(fy);
+
+      // Incremental: skip if checksum matches
+      if (is_incremental && existing && existing.checksum === checksum) {
+        skippedYears.push(fy);
+        logs.push(`Ano ${fy} sem alterações`);
+        console.log(`Year ${fy}: no changes`);
+        continue;
       }
 
-      // Upsert financial_statement_year
-      const { data: existingYear } = await supabase
-        .from('financial_statement_years')
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('fiscal_year', fy)
-        .single();
+      // Count how many items have data
+      let itemCount = 0;
+      for (const [, mapping] of Object.entries(allMappings)) {
+        let rows: Map<string, string[]>;
+        let colIdx: number;
+        if (mapping.statementType === 'income_statement') { rows = incomeRows; colIdx = incIdx; }
+        else if (mapping.statementType === 'balance_sheet') { rows = balanceRows; colIdx = bsIdx; }
+        else { rows = cashFlowRows; colIdx = cfIdx; }
+        const val = getVal(rows, mapping.labels, colIdx);
+        if (val !== null) itemCount++;
+      }
+
+      const dataStatus = itemCount < 5 ? 'draft' : 'imported';
 
       let yearId: string;
-      if (existingYear) {
-        yearId = existingYear.id;
+      if (existing) {
+        yearId = existing.id;
         await supabase.from('financial_statement_years').update({
-          source_type: sourceType as any,
-          import_method: importMethod as any,
-          data_status: 'imported' as any,
-          source_url: stockBase,
+          source_type: sourceType as any, import_method: importMethod as any,
+          data_status: dataStatus as any, source_url: stockBase, checksum,
           updated_at: new Date().toISOString(),
         }).eq('id', yearId);
+        updatedYears.push(fy);
+        logs.push(`Ano ${fy} atualizado`);
+        console.log(`Year ${fy}: updated`);
       } else {
         const { data: newYear, error: yearErr } = await supabase
-          .from('financial_statement_years')
-          .insert({
-            company_id: companyId,
-            fiscal_year: fy,
-            source_type: sourceType as any,
-            import_method: importMethod as any,
-            data_status: 'imported' as any,
-            source_url: stockBase,
-          })
-          .select()
-          .single();
-        if (yearErr) { console.error(`Failed year ${fy}:`, yearErr); continue; }
+          .from('financial_statement_years').insert({
+            company_id: companyId, fiscal_year: fy, source_type: sourceType as any,
+            import_method: importMethod as any, data_status: dataStatus as any,
+            source_url: stockBase, checksum,
+          }).select().single();
+        if (yearErr) { console.error(`Failed year ${fy}:`, yearErr); logs.push(`Ano ${fy} falhou`); continue; }
         yearId = newYear!.id;
+        importedYears.push(fy);
+        logs.push(`Novo ano encontrado: ${fy}`);
+        console.log(`Year ${fy}: new`);
       }
 
-      // Extract and store all line items
-      const allMappings = { ...SA_INCOME_MAPPINGS, ...SA_BALANCE_MAPPINGS, ...SA_CASHFLOW_MAPPINGS };
-      
+      // Upsert line items
       for (const [normalizedKey, mapping] of Object.entries(allMappings)) {
         let rows: Map<string, string[]>;
         let colIdx: number;
-        
-        if (mapping.statementType === 'income_statement') {
-          rows = incomeRows; colIdx = incIdx;
-        } else if (mapping.statementType === 'balance_sheet') {
-          rows = balanceRows; colIdx = bsIdx;
-        } else {
-          rows = cashFlowRows; colIdx = cfIdx;
-        }
+        if (mapping.statementType === 'income_statement') { rows = incomeRows; colIdx = incIdx; }
+        else if (mapping.statementType === 'balance_sheet') { rows = balanceRows; colIdx = bsIdx; }
+        else { rows = cashFlowRows; colIdx = cfIdx; }
 
         const val = getVal(rows, mapping.labels, colIdx);
         if (val !== null) {
           await supabase.from('financial_line_items').upsert({
-            statement_year_id: yearId,
-            normalized_key: normalizedKey,
+            statement_year_id: yearId, normalized_key: normalizedKey,
             statement_type: mapping.statementType as any,
-            raw_value: val,
-            normalized_value: val,
-            source_label: mapping.labels[0],
-            source_type: sourceType as any,
+            raw_value: val, normalized_value: val,
+            source_label: mapping.labels[0], source_type: sourceType as any,
             confidence_score: 0.85,
             unit: normalizedKey === 'shares_outstanding' ? 'shares' : (normalizedKey.startsWith('eps') || normalizedKey === 'book_value_per_share' ? 'USD/share' : 'USD'),
           }, { onConflict: 'statement_year_id,normalized_key' });
         }
       }
-
-      importedYears.push(fy);
     }
 
-    // Update company timestamps
+    // Detect missing years
+    const missingYears = years.filter(y => !existingYearMap.has(y) && !importedYears.includes(y));
+
     await supabase.from('companies').update({
       last_imported_at: new Date().toISOString(),
       last_refreshed_at: new Date().toISOString(),
     }).eq('id', companyId);
 
-    // Complete job
+    const allProcessed = [...importedYears, ...updatedYears].sort();
     if (job) {
       await supabase.from('import_jobs').update({
-        status: 'completed' as any,
-        finished_at: new Date().toISOString(),
-        years_imported: importedYears.sort(),
-        log_summary: `Imported ${importedYears.length} years from StockAnalysis for ${effectiveTicker}`,
+        status: 'completed' as any, finished_at: new Date().toISOString(),
+        years_imported: allProcessed, log_summary: logs.join('; '),
       }).eq('id', job.id);
     }
 
-    console.log(`StockAnalysis import complete: ${importedYears.length} years for ${effectiveTicker}`);
+    console.log(`StockAnalysis import complete: ${importedYears.length} new, ${updatedYears.length} updated, ${skippedYears.length} skipped`);
 
     return new Response(JSON.stringify({
-      success: true,
-      company_id: companyId,
-      ticker: effectiveTicker,
-      years_imported: importedYears.sort(),
-      source: sourceType,
+      success: true, company_id: companyId, ticker: effectiveTicker,
+      years_imported: importedYears.sort(), years_updated: updatedYears.sort(),
+      years_skipped: skippedYears.sort(), years_available: years,
+      missing_years: missingYears, logs, source: sourceType,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
