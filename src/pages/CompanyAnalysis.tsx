@@ -8,7 +8,7 @@ import { DCFCalculator } from "@/components/DCFCalculator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, ExternalLink, RefreshCw, Link2, Loader2, Database, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, RefreshCw, Link2, Loader2, Database, Clock, AlertCircle, CheckCircle2, Calendar, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   getCompanyData,
@@ -18,6 +18,7 @@ import {
   dbToCompany,
   DBCompany,
   CompanyData,
+  ImportResult,
 } from "@/lib/financialDataService";
 
 export default function CompanyAnalysis() {
