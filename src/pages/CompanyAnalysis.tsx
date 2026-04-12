@@ -303,6 +303,15 @@ export default function CompanyAnalysis() {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setShowYearImport(!showYearImport)}
+              className="text-xs"
+            >
+              <Calendar className="h-3.5 w-3.5 mr-1" />
+              Importar ano
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setShowLinkInput(!showLinkInput)}
               className="text-xs"
             >
