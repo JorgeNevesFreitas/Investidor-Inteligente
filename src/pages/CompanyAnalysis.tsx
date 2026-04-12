@@ -95,61 +95,84 @@ export default function CompanyAnalysis() {
     if (!ticker) return;
     setIsImporting(true);
     setImportStatus("A verificar fonte de dados...");
+    setLastImportResult(null);
 
     try {
       const isUS = dbCompany?.region_type === "US" || dbCompany?.sec_enabled || (!dbCompany && mockCompany);
+      let result: ImportResult;
 
       if (isUS) {
-        setImportStatus("A importar dados da SEC/EDGAR...");
-        const result = await importFromSEC(ticker);
-        if (result.success) {
-          toast({
-            title: "Dados importados da SEC",
-            description: `${result.years_imported?.length || 0} anos importados com sucesso`,
-          });
-        } else {
-          // If SEC fails, try StockAnalysis
+        setImportStatus("A atualizar dados da SEC (incremental)...");
+        result = await importFromSEC(ticker, { is_incremental: true });
+        if (!result.success) {
           setImportStatus("SEC falhou, a tentar StockAnalysis...");
-          const saResult = await importFromStockAnalysis({ ticker });
-          if (saResult.success) {
-            toast({
-              title: "Dados importados do StockAnalysis",
-              description: `${saResult.years_imported?.length || 0} anos importados`,
-            });
-          } else {
-            toast({
-              title: "Erro na importação",
-              description: saResult.error || result.error || "Não foi possível importar dados",
-              variant: "destructive",
-            });
-          }
+          result = await importFromStockAnalysis({ ticker, is_incremental: true });
         }
       } else {
-        setImportStatus("A importar dados do StockAnalysis...");
+        setImportStatus("A atualizar dados do StockAnalysis (incremental)...");
         const url = dbCompany?.stockanalysis_url || undefined;
-        const result = await importFromStockAnalysis({ ticker, url: url || undefined });
-        if (result.success) {
-          toast({
-            title: "Dados importados",
-            description: `${result.years_imported?.length || 0} anos importados do StockAnalysis`,
-          });
-        } else {
-          toast({
-            title: "Erro na importação",
-            description: result.error || "Não foi possível importar dados",
-            variant: "destructive",
-          });
-        }
+        result = await importFromStockAnalysis({ ticker, url, is_incremental: true });
       }
 
-      // Reload persisted data
+      setLastImportResult(result);
+
+      if (result.success) {
+        const newCount = result.years_imported?.length || 0;
+        const updCount = result.years_updated?.length || 0;
+        const skipCount = result.years_skipped?.length || 0;
+        toast({
+          title: "Atualização concluída",
+          description: `${newCount} novos, ${updCount} atualizados, ${skipCount} sem alterações`,
+        });
+      } else {
+        toast({ title: "Erro na importação", description: result.error || "Falha", variant: "destructive" });
+      }
+
       await loadPersistedData();
     } catch (err: any) {
-      toast({
-        title: "Erro",
-        description: err.message || "Falha na importação",
-        variant: "destructive",
-      });
+      toast({ title: "Erro", description: err.message || "Falha na importação", variant: "destructive" });
+    } finally {
+      setIsImporting(false);
+      setImportStatus("");
+    }
+  };
+
+  const handleImportSpecificYear = async () => {
+    if (!ticker || !specificYear) return;
+    const year = parseInt(specificYear);
+    if (isNaN(year) || year < 1990 || year > new Date().getFullYear() + 1) {
+      toast({ title: "Ano inválido", description: "Introduz um ano válido (ex: 2024)", variant: "destructive" });
+      return;
+    }
+
+    setIsImporting(true);
+    setImportStatus(`A importar ano ${year}...`);
+    setLastImportResult(null);
+
+    try {
+      const isUS = dbCompany?.region_type === "US" || dbCompany?.sec_enabled || (!dbCompany && mockCompany);
+      let result: ImportResult;
+
+      if (isUS) {
+        result = await importFromSEC(ticker, { specific_year: year, is_incremental: true });
+      } else {
+        const url = dbCompany?.stockanalysis_url || undefined;
+        result = await importFromStockAnalysis({ ticker, url, specific_year: year, is_incremental: true });
+      }
+
+      setLastImportResult(result);
+
+      if (result.success) {
+        toast({ title: `Ano ${year} importado`, description: result.logs?.join('; ') || "Sucesso" });
+        setSpecificYear("");
+        setShowYearImport(false);
+      } else {
+        toast({ title: "Erro", description: result.error || "Falha na importação", variant: "destructive" });
+      }
+
+      await loadPersistedData();
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
     } finally {
       setIsImporting(false);
       setImportStatus("");
