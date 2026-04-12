@@ -8,7 +8,7 @@ import { DCFCalculator } from "@/components/DCFCalculator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, ExternalLink, RefreshCw, Link2, Loader2, Database, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, RefreshCw, Link2, Loader2, Database, Clock, AlertCircle, CheckCircle2, Calendar, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   getCompanyData,
@@ -18,6 +18,7 @@ import {
   dbToCompany,
   DBCompany,
   CompanyData,
+  ImportResult,
 } from "@/lib/financialDataService";
 
 export default function CompanyAnalysis() {
@@ -37,6 +38,9 @@ export default function CompanyAnalysis() {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [saLink, setSaLink] = useState("");
   const [showAllYears, setShowAllYears] = useState(false);
+  const [showYearImport, setShowYearImport] = useState(false);
+  const [specificYear, setSpecificYear] = useState("");
+  const [lastImportResult, setLastImportResult] = useState<ImportResult | null>(null);
 
   // Fallback to mock data
   const mockCompany = MOCK_COMPANIES.find(c => c.ticker === ticker);
@@ -91,61 +95,84 @@ export default function CompanyAnalysis() {
     if (!ticker) return;
     setIsImporting(true);
     setImportStatus("A verificar fonte de dados...");
+    setLastImportResult(null);
 
     try {
       const isUS = dbCompany?.region_type === "US" || dbCompany?.sec_enabled || (!dbCompany && mockCompany);
+      let result: ImportResult;
 
       if (isUS) {
-        setImportStatus("A importar dados da SEC/EDGAR...");
-        const result = await importFromSEC(ticker);
-        if (result.success) {
-          toast({
-            title: "Dados importados da SEC",
-            description: `${result.years_imported?.length || 0} anos importados com sucesso`,
-          });
-        } else {
-          // If SEC fails, try StockAnalysis
+        setImportStatus("A atualizar dados da SEC (incremental)...");
+        result = await importFromSEC(ticker, { is_incremental: true });
+        if (!result.success) {
           setImportStatus("SEC falhou, a tentar StockAnalysis...");
-          const saResult = await importFromStockAnalysis({ ticker });
-          if (saResult.success) {
-            toast({
-              title: "Dados importados do StockAnalysis",
-              description: `${saResult.years_imported?.length || 0} anos importados`,
-            });
-          } else {
-            toast({
-              title: "Erro na importação",
-              description: saResult.error || result.error || "Não foi possível importar dados",
-              variant: "destructive",
-            });
-          }
+          result = await importFromStockAnalysis({ ticker, is_incremental: true });
         }
       } else {
-        setImportStatus("A importar dados do StockAnalysis...");
+        setImportStatus("A atualizar dados do StockAnalysis (incremental)...");
         const url = dbCompany?.stockanalysis_url || undefined;
-        const result = await importFromStockAnalysis({ ticker, url: url || undefined });
-        if (result.success) {
-          toast({
-            title: "Dados importados",
-            description: `${result.years_imported?.length || 0} anos importados do StockAnalysis`,
-          });
-        } else {
-          toast({
-            title: "Erro na importação",
-            description: result.error || "Não foi possível importar dados",
-            variant: "destructive",
-          });
-        }
+        result = await importFromStockAnalysis({ ticker, url, is_incremental: true });
       }
 
-      // Reload persisted data
+      setLastImportResult(result);
+
+      if (result.success) {
+        const newCount = result.years_imported?.length || 0;
+        const updCount = result.years_updated?.length || 0;
+        const skipCount = result.years_skipped?.length || 0;
+        toast({
+          title: "Atualização concluída",
+          description: `${newCount} novos, ${updCount} atualizados, ${skipCount} sem alterações`,
+        });
+      } else {
+        toast({ title: "Erro na importação", description: result.error || "Falha", variant: "destructive" });
+      }
+
       await loadPersistedData();
     } catch (err: any) {
-      toast({
-        title: "Erro",
-        description: err.message || "Falha na importação",
-        variant: "destructive",
-      });
+      toast({ title: "Erro", description: err.message || "Falha na importação", variant: "destructive" });
+    } finally {
+      setIsImporting(false);
+      setImportStatus("");
+    }
+  };
+
+  const handleImportSpecificYear = async () => {
+    if (!ticker || !specificYear) return;
+    const year = parseInt(specificYear);
+    if (isNaN(year) || year < 1990 || year > new Date().getFullYear() + 1) {
+      toast({ title: "Ano inválido", description: "Introduz um ano válido (ex: 2024)", variant: "destructive" });
+      return;
+    }
+
+    setIsImporting(true);
+    setImportStatus(`A importar ano ${year}...`);
+    setLastImportResult(null);
+
+    try {
+      const isUS = dbCompany?.region_type === "US" || dbCompany?.sec_enabled || (!dbCompany && mockCompany);
+      let result: ImportResult;
+
+      if (isUS) {
+        result = await importFromSEC(ticker, { specific_year: year, is_incremental: true });
+      } else {
+        const url = dbCompany?.stockanalysis_url || undefined;
+        result = await importFromStockAnalysis({ ticker, url, specific_year: year, is_incremental: true });
+      }
+
+      setLastImportResult(result);
+
+      if (result.success) {
+        toast({ title: `Ano ${year} importado`, description: result.logs?.join('; ') || "Sucesso" });
+        setSpecificYear("");
+        setShowYearImport(false);
+      } else {
+        toast({ title: "Erro", description: result.error || "Falha na importação", variant: "destructive" });
+      }
+
+      await loadPersistedData();
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
     } finally {
       setIsImporting(false);
       setImportStatus("");
@@ -276,6 +303,15 @@ export default function CompanyAnalysis() {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setShowYearImport(!showYearImport)}
+              className="text-xs"
+            >
+              <Calendar className="h-3.5 w-3.5 mr-1" />
+              Importar ano
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setShowLinkInput(!showLinkInput)}
               className="text-xs"
             >
@@ -356,7 +392,62 @@ export default function CompanyAnalysis() {
           </div>
         )}
 
-        {/* KPIs */}
+        {/* Specific year import */}
+        {showYearImport && (
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3">
+            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Input
+              placeholder="Ex: 2024"
+              type="number"
+              value={specificYear}
+              onChange={(e) => setSpecificYear(e.target.value)}
+              className="h-8 text-xs w-28"
+              min={1990}
+              max={new Date().getFullYear() + 1}
+            />
+            <Button
+              size="sm"
+              disabled={!specificYear.trim() || isImporting}
+              onClick={handleImportSpecificYear}
+              className="text-xs shrink-0"
+            >
+              {isImporting ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />A importar...</>
+              ) : (
+                <>Importar ano {specificYear}</>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {/* Last import result */}
+        {lastImportResult && lastImportResult.success && (
+          <div className="rounded-lg border border-border bg-card p-3 space-y-1.5 text-xs">
+            <div className="flex items-center gap-2 font-medium text-foreground">
+              <CheckCircle2 className="h-3.5 w-3.5 text-positive" />
+              Resultado da última atualização
+            </div>
+            <div className="flex flex-wrap gap-3 text-muted-foreground">
+              {(lastImportResult.years_imported?.length ?? 0) > 0 && (
+                <span className="text-positive">Novos: {lastImportResult.years_imported!.join(', ')}</span>
+              )}
+              {(lastImportResult.years_updated?.length ?? 0) > 0 && (
+                <span className="text-primary">Atualizados: {lastImportResult.years_updated!.join(', ')}</span>
+              )}
+              {(lastImportResult.years_skipped?.length ?? 0) > 0 && (
+                <span>Sem alterações: {lastImportResult.years_skipped!.join(', ')}</span>
+              )}
+            </div>
+            {(lastImportResult.missing_years?.length ?? 0) > 0 && (
+              <div className="flex items-center gap-1 text-destructive">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>Anos em falta na BD: {lastImportResult.missing_years!.join(', ')}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+
         {kpis.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
             {kpis.map(({ label, value }) => (

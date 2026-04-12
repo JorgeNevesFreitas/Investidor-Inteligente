@@ -75,19 +75,13 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
 
 function parseSecDate(dateStr?: string | null): Date | null {
   if (!dateStr) return null;
-
   const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
-
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
   const date = new Date(Date.UTC(year, month - 1, day));
-
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
-    return null;
-  }
-
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
   return date;
 }
 
@@ -107,7 +101,6 @@ function isAnnual10KFact(entry: XBRLFact): boolean {
   if (entry.fp !== 'FY') return false;
   if (entry.form !== '10-K' && entry.form !== '10-K/A') return false;
   if (!entry.end) return false;
-
   const periodDays = getFactPeriodDays(entry);
   if (periodDays === null) return true;
   return periodDays >= 300 && periodDays <= 380;
@@ -116,7 +109,6 @@ function isAnnual10KFact(entry: XBRLFact): boolean {
 function compareDatesDesc(a?: string | null, b?: string | null): number {
   const aDate = parseSecDate(a);
   const bDate = parseSecDate(b);
-
   if (aDate && bDate) return bDate.getTime() - aDate.getTime();
   if (aDate) return -1;
   if (bDate) return 1;
@@ -127,11 +119,7 @@ function chooseBestAnnualFact(entries: XBRLFact[]): XBRLFact {
   return [...entries].sort((a, b) => {
     const filedCompare = compareDatesDesc(a.filed, b.filed);
     if (filedCompare !== 0) return filedCompare;
-
-    const endCompare = compareDatesDesc(a.end, b.end);
-    if (endCompare !== 0) return endCompare;
-
-    return 0;
+    return compareDatesDesc(a.end, b.end);
   })[0];
 }
 
@@ -142,15 +130,11 @@ async function resolveCIK(ticker: string): Promise<{ cik: string; name: string }
   );
   if (!resp.ok) throw new Error(`Failed to fetch company tickers: ${resp.status}`);
   const data = await resp.json();
-
   const upperTicker = ticker.toUpperCase();
   for (const key of Object.keys(data)) {
     const entry = data[key];
     if (entry.ticker?.toUpperCase() === upperTicker) {
-      return {
-        cik: String(entry.cik_str).padStart(10, '0'),
-        name: entry.title,
-      };
+      return { cik: String(entry.cik_str).padStart(10, '0'), name: entry.title };
     }
   }
   return null;
@@ -173,26 +157,32 @@ function extractAnnualFacts(
         Array.isArray(unitEntries) ? (unitEntries as XBRLFact[]) : []
       );
 
-      const annualEntries = entries.filter(isAnnual10KFact);
-      const entriesByEndYear = new Map<number, XBRLFact[]>();
+      // For balance sheet items (point-in-time), also accept entries without start date
+      const isBalanceSheet = mapping.statementType === 'balance_sheet';
+      
+      const annualEntries = entries.filter(entry => {
+        if (entry.fp !== 'FY') return false;
+        if (entry.form !== '10-K' && entry.form !== '10-K/A') return false;
+        if (!entry.end) return false;
+        
+        if (isBalanceSheet && !entry.start) return true; // point-in-time OK
+        
+        const periodDays = getFactPeriodDays(entry);
+        if (periodDays === null) return true;
+        return periodDays >= 300 && periodDays <= 380;
+      });
 
+      const entriesByEndYear = new Map<number, XBRLFact[]>();
       for (const entry of annualEntries) {
         const endYear = getFactEndYear(entry);
         if (!endYear || !targetYearSet.has(endYear)) continue;
-
-        if (!entriesByEndYear.has(endYear)) {
-          entriesByEndYear.set(endYear, []);
-        }
+        if (!entriesByEndYear.has(endYear)) entriesByEndYear.set(endYear, []);
         entriesByEndYear.get(endYear)!.push(entry);
       }
 
       for (const [endYear, yearEntries] of entriesByEndYear.entries()) {
         const best = chooseBestAnnualFact(yearEntries);
-
-        if (!yearData.has(endYear)) {
-          yearData.set(endYear, new Map());
-        }
-
+        if (!yearData.has(endYear)) yearData.set(endYear, new Map());
         const yearMap = yearData.get(endYear)!;
         if (!yearMap.has(normalizedKey)) {
           yearMap.set(normalizedKey, {
@@ -209,6 +199,23 @@ function extractAnnualFacts(
   return yearData;
 }
 
+// Generate a simple checksum from line items to detect real changes
+function computeChecksum(items: Map<string, ExtractedFact>): string {
+  const parts: string[] = [];
+  for (const [key, fact] of [...items.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    parts.push(`${key}:${fact.value}`);
+  }
+  // Simple hash
+  let hash = 0;
+  const str = parts.join('|');
+  for (let i = 0; i < str.length; i++) {
+    const chr = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + chr;
+    hash |= 0;
+  }
+  return hash.toString(36);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -219,13 +226,15 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    const { ticker } = await req.json();
+    const body = await req.json();
+    const { ticker, specific_year, is_incremental = true } = body;
+    
     if (!ticker) {
       return new Response(JSON.stringify({ success: false, error: 'Ticker is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    console.log(`Starting SEC import for ticker: ${ticker}`);
+    console.log(`Starting SEC import for ${ticker} (incremental=${is_incremental}, specific_year=${specific_year || 'none'})`);
 
     const cikResult = await resolveCIK(ticker);
     if (!cikResult) {
@@ -235,6 +244,7 @@ Deno.serve(async (req) => {
 
     console.log(`Resolved ${ticker} to CIK ${cikResult.cik} (${cikResult.name})`);
 
+    // Upsert company
     const { data: existingCompany } = await supabase
       .from('companies')
       .select('id')
@@ -247,62 +257,47 @@ Deno.serve(async (req) => {
     let companyId: string;
     if (existingCompany) {
       companyId = existingCompany.id;
-      const { error: updateErr } = await supabase
-        .from('companies')
-        .update({
-          name: cikResult.name,
-          cik: cikResult.cik,
-          region_type: 'US' as const,
-          sec_enabled: true,
-          primary_data_source: 'SEC_XBRL',
-          country: 'US',
-        })
-        .eq('id', companyId);
-
-      if (updateErr) throw new Error(`Failed to update company: ${updateErr.message}`);
+      await supabase.from('companies').update({
+        name: cikResult.name, cik: cikResult.cik, region_type: 'US' as const,
+        sec_enabled: true, primary_data_source: 'SEC_XBRL', country: 'US',
+      }).eq('id', companyId);
     } else {
       const { data: newCompany, error: insertErr } = await supabase
-        .from('companies')
-        .insert({
-          ticker: ticker.toUpperCase(),
-          name: cikResult.name,
-          cik: cikResult.cik,
-          region_type: 'US' as const,
-          sec_enabled: true,
-          primary_data_source: 'SEC_XBRL',
-          country: 'US',
-        })
-        .select()
-        .single();
-
+        .from('companies').insert({
+          ticker: ticker.toUpperCase(), name: cikResult.name, cik: cikResult.cik,
+          region_type: 'US' as const, sec_enabled: true, primary_data_source: 'SEC_XBRL', country: 'US',
+        }).select().single();
       if (insertErr) throw new Error(`Failed to create company: ${insertErr.message}`);
       companyId = newCompany!.id;
     }
 
+    // Get existing years for incremental comparison
+    const { data: existingYears } = await supabase
+      .from('financial_statement_years')
+      .select('id, fiscal_year, checksum')
+      .eq('company_id', companyId);
+
+    const existingYearMap = new Map<number, { id: string; checksum: string | null }>();
+    for (const ey of existingYears || []) {
+      existingYearMap.set(ey.fiscal_year, { id: ey.id, checksum: ey.checksum });
+    }
+
+    // Create import job
+    const jobType = specific_year ? 'import' : 'import';
     const { data: job } = await supabase.from('import_jobs').insert({
-      company_id: companyId,
-      job_type: 'import' as const,
-      source_type: 'SEC_XBRL' as const,
-      status: 'running' as const,
+      company_id: companyId, job_type: jobType as any,
+      source_type: 'SEC_XBRL' as const, status: 'running' as const,
     }).select().single();
 
+    // Fetch SEC data
     const factsUrl = `https://data.sec.gov/api/xbrl/companyfacts/CIK${cikResult.cik}.json`;
-    console.log(`Fetching company facts from: ${factsUrl}`);
-
     const factsResp = await fetchWithRetry(factsUrl, {
-      'User-Agent': SEC_USER_AGENT,
-      'Accept': 'application/json',
+      'User-Agent': SEC_USER_AGENT, 'Accept': 'application/json',
     });
 
     if (!factsResp.ok) {
       const errMsg = `SEC API returned ${factsResp.status}`;
-      if (job) {
-        await supabase.from('import_jobs').update({
-          status: 'failed' as const,
-          finished_at: new Date().toISOString(),
-          error_details: errMsg,
-        }).eq('id', job.id);
-      }
+      if (job) await supabase.from('import_jobs').update({ status: 'failed' as const, finished_at: new Date().toISOString(), error_details: errMsg }).eq('id', job.id);
       return new Response(JSON.stringify({ success: false, error: errMsg }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -310,135 +305,141 @@ Deno.serve(async (req) => {
     const factsData = await factsResp.json();
     const facts = factsData.facts || {};
 
+    // Determine target years
     const currentYear = new Date().getFullYear();
-    const targetYears = Array.from({ length: 12 }, (_, i) => currentYear - i);
+    let targetYears: number[];
+    if (specific_year) {
+      targetYears = [specific_year];
+    } else {
+      targetYears = Array.from({ length: 12 }, (_, i) => currentYear - i);
+    }
 
     const yearData = extractAnnualFacts(facts, targetYears);
-    console.log(`Extracted data for ${yearData.size} years: ${Array.from(yearData.keys()).sort().join(', ')}`);
+
+    // Detect available years from source for reporting
+    const allAvailableYears = Array.from(yearData.keys()).sort();
+    const existingDbYears = Array.from(existingYearMap.keys()).sort();
+    
+    console.log(`Source years: ${allAvailableYears.join(', ')}`);
+    console.log(`DB years: ${existingDbYears.join(', ')}`);
 
     if (yearData.size === 0) {
-      if (job) {
-        await supabase.from('import_jobs').update({
-          status: 'failed' as const,
-          finished_at: new Date().toISOString(),
-          error_details: 'No annual financial data found in SEC XBRL',
-        }).eq('id', job.id);
-      }
-      return new Response(JSON.stringify({ success: false, error: 'No annual financial data found in SEC filings' }),
+      const errMsg = specific_year ? `No data found for year ${specific_year}` : 'No annual financial data found in SEC XBRL';
+      if (job) await supabase.from('import_jobs').update({ status: 'failed' as const, finished_at: new Date().toISOString(), error_details: errMsg }).eq('id', job.id);
+      return new Response(JSON.stringify({ success: false, error: errMsg }),
         { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const importedYears: number[] = [];
+    const updatedYears: number[] = [];
+    const skippedYears: number[] = [];
+    const logs: string[] = [];
 
     for (const [fy, items] of Array.from(yearData.entries()).sort((a, b) => a[0] - b[0])) {
+      const checksum = computeChecksum(items);
+      const existing = existingYearMap.get(fy);
+
+      // Incremental: skip if checksum matches
+      if (is_incremental && existing && existing.checksum === checksum) {
+        skippedYears.push(fy);
+        logs.push(`Ano ${fy} sem alterações`);
+        console.log(`Year ${fy}: no changes (checksum match)`);
+        continue;
+      }
+
       const latestFiledDate = Array.from(items.values())
         .map((item) => item.filedDate)
         .filter((date): date is string => Boolean(date))
         .sort((a, b) => b.localeCompare(a))[0] || null;
 
-      const { data: existingYear } = await supabase
-        .from('financial_statement_years')
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('fiscal_year', fy)
-        .single();
+      // Determine data_status: if few items, mark as partial
+      const dataStatus = items.size < 5 ? 'draft' : 'imported';
 
       let yearId: string;
-      if (existingYear) {
-        yearId = existingYear.id;
+      if (existing) {
+        yearId = existing.id;
         await supabase.from('financial_statement_years').update({
           source_type: 'SEC_XBRL' as const,
-          import_method: 'auto_sec' as const,
-          data_status: 'imported' as const,
+          import_method: specific_year ? ('manual_entry' as const) : ('auto_sec' as const),
+          data_status: dataStatus as any,
           source_url: factsUrl,
           filing_type: '10-K',
           filing_date: latestFiledDate,
+          checksum,
           updated_at: new Date().toISOString(),
         }).eq('id', yearId);
+        updatedYears.push(fy);
+        logs.push(`Ano ${fy} atualizado`);
+        console.log(`Year ${fy}: updated (checksum changed)`);
       } else {
         const { data: newYear, error: yearErr } = await supabase
-          .from('financial_statement_years')
-          .insert({
-            company_id: companyId,
-            fiscal_year: fy,
+          .from('financial_statement_years').insert({
+            company_id: companyId, fiscal_year: fy,
             source_type: 'SEC_XBRL' as const,
-            import_method: 'auto_sec' as const,
-            data_status: 'imported' as const,
-            source_url: factsUrl,
-            filing_type: '10-K',
-            filing_date: latestFiledDate,
-          })
-          .select()
-          .single();
-        if (yearErr) {
-          console.error(`Failed to insert year ${fy}:`, yearErr);
-          continue;
-        }
+            import_method: specific_year ? ('manual_entry' as const) : ('auto_sec' as const),
+            data_status: dataStatus as any,
+            source_url: factsUrl, filing_type: '10-K', filing_date: latestFiledDate, checksum,
+          }).select().single();
+        if (yearErr) { console.error(`Failed year ${fy}:`, yearErr); logs.push(`Ano ${fy} falhou: ${yearErr.message}`); continue; }
         yearId = newYear!.id;
+        importedYears.push(fy);
+        logs.push(`Novo ano encontrado: ${fy}`);
+        console.log(`Year ${fy}: new (inserted)`);
       }
 
+      // Upsert line items
       for (const [normalizedKey, fact] of items.entries()) {
         const mapping = XBRL_MAPPINGS[normalizedKey];
-        const statementType = mapping?.statementType || 'income_statement';
-
         await supabase.from('financial_line_items').upsert({
-          statement_year_id: yearId,
-          normalized_key: normalizedKey,
-          statement_type: statementType as any,
-          raw_value: fact.value,
-          normalized_value: fact.value,
-          source_label: fact.sourceTag,
-          source_type: 'SEC_XBRL' as const,
+          statement_year_id: yearId, normalized_key: normalizedKey,
+          statement_type: (mapping?.statementType || 'income_statement') as any,
+          raw_value: fact.value, normalized_value: fact.value,
+          source_label: fact.sourceTag, source_type: 'SEC_XBRL' as const,
           confidence_score: 1.0,
           unit: normalizedKey === 'shares_outstanding' ? 'shares' : (normalizedKey.startsWith('eps') ? 'USD/share' : 'USD'),
           source_reference: fact.endDate,
         }, { onConflict: 'statement_year_id,normalized_key' });
       }
 
+      // Calculate FCF
       const ocf = items.get('operating_cash_flow');
       const capex = items.get('capital_expenditures');
       if (ocf && capex) {
         const fcf = ocf.value - Math.abs(capex.value);
         await supabase.from('financial_line_items').upsert({
-          statement_year_id: yearId,
-          normalized_key: 'free_cash_flow',
-          statement_type: 'cash_flow' as any,
-          raw_value: fcf,
-          normalized_value: fcf,
-          source_label: 'Calculated: OCF - |CapEx|',
-          source_type: 'SEC_XBRL' as const,
-          confidence_score: 0.95,
-          unit: 'USD',
-          source_reference: latestFiledDate,
+          statement_year_id: yearId, normalized_key: 'free_cash_flow',
+          statement_type: 'cash_flow' as any, raw_value: fcf, normalized_value: fcf,
+          source_label: 'Calculated: OCF - |CapEx|', source_type: 'SEC_XBRL' as const,
+          confidence_score: 0.95, unit: 'USD', source_reference: latestFiledDate,
         }, { onConflict: 'statement_year_id,normalized_key' });
       }
-
-      importedYears.push(fy);
     }
+
+    // Detect missing years (in source but not imported)
+    const missingYears = allAvailableYears.filter(y => !existingYearMap.has(y) && !importedYears.includes(y));
 
     await supabase.from('companies').update({
       last_imported_at: new Date().toISOString(),
       last_refreshed_at: new Date().toISOString(),
     }).eq('id', companyId);
 
+    const allProcessed = [...importedYears, ...updatedYears].sort();
+    const logSummary = logs.join('; ');
+
     if (job) {
       await supabase.from('import_jobs').update({
-        status: 'completed' as const,
-        finished_at: new Date().toISOString(),
-        years_imported: importedYears.sort(),
-        log_summary: `Imported ${importedYears.length} years from SEC XBRL for ${ticker}`,
+        status: 'completed' as const, finished_at: new Date().toISOString(),
+        years_imported: allProcessed, log_summary: logSummary,
       }).eq('id', job.id);
     }
 
-    console.log(`SEC import complete: ${importedYears.length} years for ${ticker}`);
+    console.log(`SEC import complete: ${importedYears.length} new, ${updatedYears.length} updated, ${skippedYears.length} skipped`);
 
     return new Response(JSON.stringify({
-      success: true,
-      company_id: companyId,
-      ticker: ticker.toUpperCase(),
-      name: cikResult.name,
-      years_imported: importedYears.sort(),
-      source: 'SEC_XBRL',
+      success: true, company_id: companyId, ticker: ticker.toUpperCase(), name: cikResult.name,
+      years_imported: importedYears.sort(), years_updated: updatedYears.sort(),
+      years_skipped: skippedYears.sort(), years_available: allAvailableYears,
+      missing_years: missingYears, logs, source: 'SEC_XBRL',
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
