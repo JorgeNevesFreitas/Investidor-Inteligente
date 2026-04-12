@@ -38,6 +38,9 @@ export default function CompanyAnalysis() {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [saLink, setSaLink] = useState("");
   const [showAllYears, setShowAllYears] = useState(false);
+  const [showYearImport, setShowYearImport] = useState(false);
+  const [specificYear, setSpecificYear] = useState("");
+  const [lastImportResult, setLastImportResult] = useState<ImportResult | null>(null);
 
   // Fallback to mock data
   const mockCompany = MOCK_COMPANIES.find(c => c.ticker === ticker);
