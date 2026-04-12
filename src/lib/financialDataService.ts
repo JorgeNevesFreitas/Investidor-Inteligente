@@ -185,9 +185,21 @@ export async function getCompanyData(ticker: string): Promise<CompanyData> {
   };
 }
 
-export async function importFromSEC(ticker: string): Promise<{ success: boolean; years_imported?: number[]; error?: string }> {
+export interface ImportResult {
+  success: boolean;
+  years_imported?: number[];
+  years_updated?: number[];
+  years_skipped?: number[];
+  years_available?: number[];
+  missing_years?: number[];
+  logs?: string[];
+  error?: string;
+  company_id?: string;
+}
+
+export async function importFromSEC(ticker: string, options?: { specific_year?: number; is_incremental?: boolean }): Promise<ImportResult> {
   const { data, error } = await supabase.functions.invoke('sec-import', {
-    body: { ticker },
+    body: { ticker, specific_year: options?.specific_year, is_incremental: options?.is_incremental ?? true },
   });
 
   if (error) {
@@ -201,9 +213,11 @@ export async function importFromStockAnalysis(params: {
   url?: string;
   company_name?: string;
   exchange?: string;
-}): Promise<{ success: boolean; years_imported?: number[]; error?: string; company_id?: string }> {
+  specific_year?: number;
+  is_incremental?: boolean;
+}): Promise<ImportResult> {
   const { data, error } = await supabase.functions.invoke('stockanalysis-import', {
-    body: params,
+    body: { ...params, is_incremental: params.is_incremental ?? true },
   });
 
   if (error) {
