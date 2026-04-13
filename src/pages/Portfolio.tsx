@@ -2,15 +2,34 @@ import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { MOCK_PORTFOLIO, PortfolioPosition } from "@/lib/mockData";
 import { formatCurrency } from "@/lib/calculations";
-import { Plus, TrendingUp, TrendingDown } from "lucide-react";
+import { Plus, TrendingUp, TrendingDown, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function Portfolio() {
-  const [positions] = useState<PortfolioPosition[]>(MOCK_PORTFOLIO);
+  const [positions, setPositions] = useState<PortfolioPosition[]>(MOCK_PORTFOLIO);
+  const { toast } = useToast();
+
+  const handleDeletePosition = (id: string) => {
+    const pos = positions.find(p => p.id === id);
+    setPositions(prev => prev.filter(p => p.id !== id));
+    toast({ title: "Posição removida", description: `${pos?.name || ''} (${pos?.ticker || ''}) removida do portfolio.` });
+  };
 
   const totalInvested = positions.reduce((sum, p) => sum + p.buyPrice * p.quantity, 0);
   const totalCurrent = positions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
   const totalReturn = totalCurrent - totalInvested;
-  const totalReturnPct = (totalReturn / totalInvested) * 100;
+  const totalReturnPct = totalInvested > 0 ? (totalReturn / totalInvested) * 100 : 0;
 
   return (
     <AppLayout>
@@ -26,7 +45,6 @@ export default function Portfolio() {
           </button>
         </div>
 
-        {/* Summary */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <div className="rounded-lg border border-border bg-card p-4">
             <p className="text-xs text-muted-foreground">Valor Investido</p>
@@ -51,12 +69,11 @@ export default function Portfolio() {
           </div>
         </div>
 
-        {/* Positions */}
         <div className="rounded-lg border border-border bg-card overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                {["Empresa", "Ticker", "Data Compra", "Preço Compra", "Qtd.", "Preço Atual", "Valor Atual", "Rentabilidade", "%"].map(h => (
+                {["Empresa", "Ticker", "Data Compra", "Preço Compra", "Qtd.", "Preço Atual", "Valor Atual", "Rentabilidade", "%", ""].map(h => (
                   <th key={h} className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">{h}</th>
                 ))}
               </tr>
@@ -66,7 +83,7 @@ export default function Portfolio() {
                 const invested = p.buyPrice * p.quantity;
                 const current = p.currentPrice * p.quantity;
                 const ret = current - invested;
-                const retPct = (ret / invested) * 100;
+                const retPct = invested > 0 ? (ret / invested) * 100 : 0;
                 return (
                   <tr key={p.id} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
                     <td className="px-3 py-2.5 font-medium text-foreground">{p.name}</td>
@@ -84,6 +101,29 @@ export default function Portfolio() {
                         {retPct >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                         {retPct.toFixed(1)}%
                       </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remover posição?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Tens a certeza que queres remover <strong>{p.name} ({p.ticker})</strong> do portfolio? Esta ação não pode ser desfeita.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDeletePosition(p.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                              Remover
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </td>
                   </tr>
                 );

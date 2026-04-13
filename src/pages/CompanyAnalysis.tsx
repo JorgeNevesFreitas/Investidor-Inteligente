@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { MOCK_COMPANIES, FinancialYear, Company } from "@/lib/mockData";
 import { AppLayout } from "@/components/AppLayout";
 import { FinancialTable } from "@/components/FinancialTable";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, ExternalLink, RefreshCw, Link2, Loader2, Database, Clock, AlertCircle, CheckCircle2, Calendar, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { fetchMarketPrice, MarketPriceResult } from "@/lib/marketPriceService";
 import {
   getCompanyData,
   importFromSEC,
@@ -17,7 +18,6 @@ import {
   dbFinancialsToFinancialYears,
   dbToCompany,
   DBCompany,
-  CompanyData,
   ImportResult,
 } from "@/lib/financialDataService";
 
@@ -31,6 +31,9 @@ export default function CompanyAnalysis() {
   const [loadingDB, setLoadingDB] = useState(true);
   const [lastImported, setLastImported] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<string | null>(null);
+
+  // Market price state
+  const [marketPrice, setMarketPrice] = useState<MarketPriceResult | null>(null);
 
   // UI state
   const [isImporting, setIsImporting] = useState(false);
@@ -67,9 +70,18 @@ export default function CompanyAnalysis() {
     }
   }, [ticker]);
 
+  // Fetch market price
+  const loadMarketPrice = useCallback(async () => {
+    if (!ticker) return;
+    setMarketPrice({ price: 0, currency: 'USD', source: '', timestamp: '', status: 'loading' });
+    const result = await fetchMarketPrice(ticker);
+    setMarketPrice(result);
+  }, [ticker]);
+
   useEffect(() => {
     loadPersistedData();
-  }, [loadPersistedData]);
+    loadMarketPrice();
+  }, [loadPersistedData, loadMarketPrice]);
 
   // Determine which data to display
   const hasDBData = dbFinancials.length > 0;
@@ -82,13 +94,22 @@ export default function CompanyAnalysis() {
   // Build company object for components
   const company: Company | null = useMemo(() => {
     if (dbCompany && hasDBData) {
-      return dbToCompany(dbCompany, displayedFinancials);
+      const c = dbToCompany(dbCompany, displayedFinancials);
+      // Override currentPrice with market price if available
+      if (marketPrice?.status === 'success' && marketPrice.price > 0) {
+        c.currentPrice = marketPrice.price;
+      }
+      return c;
     }
     if (mockCompany) {
-      return { ...mockCompany, financials: displayedFinancials };
+      const c = { ...mockCompany, financials: displayedFinancials };
+      if (marketPrice?.status === 'success' && marketPrice.price > 0) {
+        c.currentPrice = marketPrice.price;
+      }
+      return c;
     }
     return null;
-  }, [dbCompany, hasDBData, mockCompany, displayedFinancials]);
+  }, [dbCompany, hasDBData, mockCompany, displayedFinancials, marketPrice]);
 
   // Handlers
   const handleRefresh = async () => {
@@ -129,6 +150,7 @@ export default function CompanyAnalysis() {
       }
 
       await loadPersistedData();
+      await loadMarketPrice();
     } catch (err: any) {
       toast({ title: "Erro", description: err.message || "Falha na importação", variant: "destructive" });
     } finally {
@@ -201,18 +223,10 @@ export default function CompanyAnalysis() {
         setShowLinkInput(false);
         await loadPersistedData();
       } else {
-        toast({
-          title: "Erro na importação",
-          description: result.error || "Não foi possível importar dados",
-          variant: "destructive",
-        });
+        toast({ title: "Erro na importação", description: result.error || "Não foi possível importar dados", variant: "destructive" });
       }
     } catch (err: any) {
-      toast({
-        title: "Erro",
-        description: err.message || "Falha na importação",
-        variant: "destructive",
-      });
+      toast({ title: "Erro", description: err.message || "Falha na importação", variant: "destructive" });
     } finally {
       setIsImporting(false);
       setImportStatus("");
@@ -257,8 +271,11 @@ export default function CompanyAnalysis() {
   const last = displayedFinancials.length > 0 ? displayedFinancials[displayedFinancials.length - 1] : null;
   const allFinancials = hasDBData ? dbFinancials : (mockCompany?.financials || []);
 
+  const effectivePrice = (marketPrice?.status === 'success' && marketPrice.price > 0) ? marketPrice.price : company?.currentPrice;
+  const hasPriceValid = effectivePrice !== undefined && effectivePrice !== null && effectivePrice > 0;
+
   const kpis = last ? [
-    { label: "Preço", value: company?.currentPrice ? `$${company.currentPrice}` : "—" },
+    { label: "Preço", value: hasPriceValid ? `$${effectivePrice!.toFixed(2)}` : (marketPrice?.status === 'loading' ? "..." : "—") },
     { label: "Market Cap", value: company?.marketCap ? `$${(company.marketCap / 1000).toFixed(1)}T` : "—" },
     { label: "P/E", value: company?.pe ? company.pe.toFixed(1) : "—" },
     { label: "EPS", value: `$${last.eps.toFixed(2)}` },
@@ -287,36 +304,14 @@ export default function CompanyAnalysis() {
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={isImporting}
-              className="text-xs"
-            >
-              {isImporting ? (
-                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />A importar...</>
-              ) : (
-                <><RefreshCw className="h-3.5 w-3.5 mr-1" />Atualizar</>
-              )}
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isImporting} className="text-xs">
+              {isImporting ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />A importar...</> : <><RefreshCw className="h-3.5 w-3.5 mr-1" />Atualizar</>}
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowYearImport(!showYearImport)}
-              className="text-xs"
-            >
-              <Calendar className="h-3.5 w-3.5 mr-1" />
-              Importar ano
+            <Button variant="outline" size="sm" onClick={() => setShowYearImport(!showYearImport)} className="text-xs">
+              <Calendar className="h-3.5 w-3.5 mr-1" />Importar ano
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowLinkInput(!showLinkInput)}
-              className="text-xs"
-            >
-              <Link2 className="h-3.5 w-3.5 mr-1" />
-              StockAnalysis Link
+            <Button variant="outline" size="sm" onClick={() => setShowLinkInput(!showLinkInput)} className="text-xs">
+              <Link2 className="h-3.5 w-3.5 mr-1" />StockAnalysis Link
             </Button>
           </div>
         </div>
@@ -333,14 +328,12 @@ export default function CompanyAnalysis() {
         <div className="flex flex-wrap items-center gap-3 text-xs">
           {hasDBData && (
             <div className="flex items-center gap-1 text-positive">
-              <Database className="h-3.5 w-3.5" />
-              <span>Dados persistidos</span>
+              <Database className="h-3.5 w-3.5" /><span>Dados persistidos</span>
             </div>
           )}
           {!hasDBData && mockCompany && (
             <div className="flex items-center gap-1 text-muted-foreground">
-              <AlertCircle className="h-3.5 w-3.5" />
-              <span>Dados de demonstração — clica "Atualizar" para importar dados reais</span>
+              <AlertCircle className="h-3.5 w-3.5" /><span>Dados de demonstração — clica "Atualizar" para importar dados reais</span>
             </div>
           )}
           {dataSource && (
@@ -366,29 +359,11 @@ export default function CompanyAnalysis() {
         {showLinkInput && (
           <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3">
             <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
-            <Input
-              placeholder="https://stockanalysis.com/stocks/aapl/financials/"
-              value={saLink}
-              onChange={(e) => setSaLink(e.target.value)}
-              className="h-8 text-xs"
-            />
-            <Button
-              size="sm"
-              disabled={!saLink.trim() || isImporting}
-              onClick={handleImportFromLink}
-              className="text-xs shrink-0"
-            >
-              {isImporting ? (
-                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />A importar...</>
-              ) : (
-                <><RefreshCw className="h-3.5 w-3.5 mr-1" />Importar dados</>
-              )}
+            <Input placeholder="https://stockanalysis.com/stocks/aapl/financials/" value={saLink} onChange={(e) => setSaLink(e.target.value)} className="h-8 text-xs" />
+            <Button size="sm" disabled={!saLink.trim() || isImporting} onClick={handleImportFromLink} className="text-xs shrink-0">
+              {isImporting ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />A importar...</> : <><RefreshCw className="h-3.5 w-3.5 mr-1" />Importar dados</>}
             </Button>
-            {saLink && (
-              <a href={saLink} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                <ExternalLink className="h-4 w-4 text-primary hover:text-primary/80" />
-              </a>
-            )}
+            {saLink && <a href={saLink} target="_blank" rel="noopener noreferrer" className="shrink-0"><ExternalLink className="h-4 w-4 text-primary hover:text-primary/80" /></a>}
           </div>
         )}
 
@@ -396,26 +371,9 @@ export default function CompanyAnalysis() {
         {showYearImport && (
           <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3">
             <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
-            <Input
-              placeholder="Ex: 2024"
-              type="number"
-              value={specificYear}
-              onChange={(e) => setSpecificYear(e.target.value)}
-              className="h-8 text-xs w-28"
-              min={1990}
-              max={new Date().getFullYear() + 1}
-            />
-            <Button
-              size="sm"
-              disabled={!specificYear.trim() || isImporting}
-              onClick={handleImportSpecificYear}
-              className="text-xs shrink-0"
-            >
-              {isImporting ? (
-                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />A importar...</>
-              ) : (
-                <>Importar ano {specificYear}</>
-              )}
+            <Input placeholder="Ex: 2024" type="number" value={specificYear} onChange={(e) => setSpecificYear(e.target.value)} className="h-8 text-xs w-28" min={1990} max={new Date().getFullYear() + 1} />
+            <Button size="sm" disabled={!specificYear.trim() || isImporting} onClick={handleImportSpecificYear} className="text-xs shrink-0">
+              {isImporting ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />A importar...</> : <>Importar ano {specificYear}</>}
             </Button>
           </div>
         )}
@@ -424,29 +382,20 @@ export default function CompanyAnalysis() {
         {lastImportResult && lastImportResult.success && (
           <div className="rounded-lg border border-border bg-card p-3 space-y-1.5 text-xs">
             <div className="flex items-center gap-2 font-medium text-foreground">
-              <CheckCircle2 className="h-3.5 w-3.5 text-positive" />
-              Resultado da última atualização
+              <CheckCircle2 className="h-3.5 w-3.5 text-positive" />Resultado da última atualização
             </div>
             <div className="flex flex-wrap gap-3 text-muted-foreground">
-              {(lastImportResult.years_imported?.length ?? 0) > 0 && (
-                <span className="text-positive">Novos: {lastImportResult.years_imported!.join(', ')}</span>
-              )}
-              {(lastImportResult.years_updated?.length ?? 0) > 0 && (
-                <span className="text-primary">Atualizados: {lastImportResult.years_updated!.join(', ')}</span>
-              )}
-              {(lastImportResult.years_skipped?.length ?? 0) > 0 && (
-                <span>Sem alterações: {lastImportResult.years_skipped!.join(', ')}</span>
-              )}
+              {(lastImportResult.years_imported?.length ?? 0) > 0 && <span className="text-positive">Novos: {lastImportResult.years_imported!.join(', ')}</span>}
+              {(lastImportResult.years_updated?.length ?? 0) > 0 && <span className="text-primary">Atualizados: {lastImportResult.years_updated!.join(', ')}</span>}
+              {(lastImportResult.years_skipped?.length ?? 0) > 0 && <span>Sem alterações: {lastImportResult.years_skipped!.join(', ')}</span>}
             </div>
             {(lastImportResult.missing_years?.length ?? 0) > 0 && (
               <div className="flex items-center gap-1 text-destructive">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                <span>Anos em falta na BD: {lastImportResult.missing_years!.join(', ')}</span>
+                <AlertTriangle className="h-3.5 w-3.5" /><span>Anos em falta na BD: {lastImportResult.missing_years!.join(', ')}</span>
               </div>
             )}
           </div>
         )}
-
 
         {kpis.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
@@ -462,12 +411,8 @@ export default function CompanyAnalysis() {
         {/* Year range toggle */}
         {allFinancials.length > 10 && (
           <div className="flex items-center gap-2">
-            <Button variant={showAllYears ? "outline" : "default"} size="sm" onClick={() => setShowAllYears(false)} className="text-xs">
-              Últimos 10 anos
-            </Button>
-            <Button variant={showAllYears ? "default" : "outline"} size="sm" onClick={() => setShowAllYears(true)} className="text-xs">
-              Todos os dados ({allFinancials.length} anos)
-            </Button>
+            <Button variant={showAllYears ? "outline" : "default"} size="sm" onClick={() => setShowAllYears(false)} className="text-xs">Últimos 10 anos</Button>
+            <Button variant={showAllYears ? "default" : "outline"} size="sm" onClick={() => setShowAllYears(true)} className="text-xs">Todos os dados ({allFinancials.length} anos)</Button>
           </div>
         )}
 
@@ -476,9 +421,7 @@ export default function CompanyAnalysis() {
           <div className="rounded-lg border border-dashed border-border bg-card/50 p-12 flex flex-col items-center justify-center text-center">
             <Database className="h-8 w-8 text-muted-foreground mb-3" />
             <p className="text-sm font-medium text-foreground">Sem dados financeiros</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Clica em "Atualizar" para importar dados da SEC (EUA) ou usa o botão "StockAnalysis Link" para importar manualmente.
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Clica em "Atualizar" para importar dados da SEC (EUA) ou usa o botão "StockAnalysis Link" para importar manualmente.</p>
           </div>
         )}
 
@@ -497,51 +440,39 @@ export default function CompanyAnalysis() {
 
             <TabsContent value="financials" className="mt-4 space-y-6">
               <div className="rounded-lg border border-border bg-card overflow-hidden">
-                <div className="border-b border-border px-4 py-2.5">
-                  <h3 className="text-sm font-semibold text-foreground">📈 Performance Financeira</h3>
-                </div>
+                <div className="border-b border-border px-4 py-2.5"><h3 className="text-sm font-semibold text-foreground">📈 Performance Financeira</h3></div>
                 <FinancialTable data={displayedFinancials} section="performance" />
               </div>
             </TabsContent>
 
             <TabsContent value="income" className="mt-4">
               <div className="rounded-lg border border-border bg-card overflow-hidden">
-                <div className="border-b border-border px-4 py-2.5">
-                  <h3 className="text-sm font-semibold text-foreground">📄 Income Statement</h3>
-                </div>
+                <div className="border-b border-border px-4 py-2.5"><h3 className="text-sm font-semibold text-foreground">📄 Income Statement</h3></div>
                 <FinancialTable data={displayedFinancials} section="incomeStatement" />
               </div>
             </TabsContent>
 
             <TabsContent value="balance" className="mt-4">
               <div className="rounded-lg border border-border bg-card overflow-hidden">
-                <div className="border-b border-border px-4 py-2.5">
-                  <h3 className="text-sm font-semibold text-foreground">🏦 Balance Sheet</h3>
-                </div>
+                <div className="border-b border-border px-4 py-2.5"><h3 className="text-sm font-semibold text-foreground">🏦 Balance Sheet</h3></div>
                 <FinancialTable data={displayedFinancials} section="balanceSheet" />
               </div>
             </TabsContent>
 
             <TabsContent value="cashflow" className="mt-4">
               <div className="rounded-lg border border-border bg-card overflow-hidden">
-                <div className="border-b border-border px-4 py-2.5">
-                  <h3 className="text-sm font-semibold text-foreground">💵 Cash Flow Statement</h3>
-                </div>
+                <div className="border-b border-border px-4 py-2.5"><h3 className="text-sm font-semibold text-foreground">💵 Cash Flow Statement</h3></div>
                 <FinancialTable data={displayedFinancials} section="cashFlow" />
               </div>
             </TabsContent>
 
             <TabsContent value="ratios" className="mt-4 space-y-6">
               <div className="rounded-lg border border-border bg-card overflow-hidden">
-                <div className="border-b border-border px-4 py-2.5">
-                  <h3 className="text-sm font-semibold text-foreground">💰 Rentabilidade e Eficiência</h3>
-                </div>
+                <div className="border-b border-border px-4 py-2.5"><h3 className="text-sm font-semibold text-foreground">💰 Rentabilidade e Eficiência</h3></div>
                 <FinancialTable data={displayedFinancials} section="profitability" />
               </div>
               <div className="rounded-lg border border-border bg-card overflow-hidden">
-                <div className="border-b border-border px-4 py-2.5">
-                  <h3 className="text-sm font-semibold text-foreground">🧾 Estrutura Financeira</h3>
-                </div>
+                <div className="border-b border-border px-4 py-2.5"><h3 className="text-sm font-semibold text-foreground">🧾 Estrutura Financeira</h3></div>
                 <FinancialTable data={displayedFinancials} section="structure" />
               </div>
             </TabsContent>
@@ -558,7 +489,12 @@ export default function CompanyAnalysis() {
             </TabsContent>
 
             <TabsContent value="valuation" className="mt-4">
-              <DCFCalculator company={company} />
+              <DCFCalculator
+                company={company}
+                marketPrice={marketPrice?.price || null}
+                priceStatus={marketPrice?.status || 'loading'}
+                priceTimestamp={marketPrice?.timestamp || null}
+              />
             </TabsContent>
           </Tabs>
         )}

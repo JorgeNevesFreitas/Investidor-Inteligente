@@ -2,9 +2,13 @@ import { useState, useMemo, useEffect } from "react";
 import { Company } from "@/lib/mockData";
 import { calculateDCF, DCFInputs, DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "./StatusBadge";
+import { Loader2 } from "lucide-react";
 
 interface DCFCalculatorProps {
   company: Company;
+  marketPrice?: number | null;
+  priceStatus?: 'loading' | 'success' | 'error' | 'unavailable';
+  priceTimestamp?: string | null;
 }
 
 interface ProjectionRow {
@@ -24,9 +28,13 @@ type FormInputs = {
   marginOfSafety: number | "";
 };
 
-export function DCFCalculator({ company }: DCFCalculatorProps) {
+export function DCFCalculator({ company, marketPrice, priceStatus = 'success', priceTimestamp }: DCFCalculatorProps) {
   const lastYear = company.financials[company.financials.length - 1];
   const storageKey = `dcf-inputs-${company.ticker}`;
+
+  // Use market price if available, fallback to company.currentPrice
+  const effectivePrice = (marketPrice && marketPrice > 0) ? marketPrice : (company.currentPrice > 0 ? company.currentPrice : null);
+  const hasPriceValid = effectivePrice !== null && effectivePrice > 0;
 
   const [inputs, setInputs] = useState<FormInputs>(() => {
     try {
@@ -62,7 +70,10 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
   };
 
   const baseCF = inputs.method === "fcf" ? lastYear.fcf : lastYear.eps * company.sharesOutstanding;
-  const result: DCFResult | null = allFilled ? calculateDCF(baseCF, company.sharesOutstanding, company.currentPrice, numInputs) : null;
+  const result: DCFResult | null = (allFilled && hasPriceValid) ? calculateDCF(baseCF, company.sharesOutstanding, effectivePrice!, numInputs) : null;
+
+  // Determine badge status
+  const badgeStatus = !hasPriceValid ? "no_price" : (result?.status || "no_price");
 
   const projections = useMemo(() => {
     if (!allFilled) return [];
@@ -73,30 +84,14 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
 
     for (let i = 1; i <= 5; i++) {
       cf = cf * (1 + numInputs.growthRate1to5 / 100);
-      rows.push({
-        year: baseYear + i,
-        label: `${baseYear + i}`,
-        cashFlow: cf,
-        presentValue: cf / Math.pow(1 + dr, i),
-      });
+      rows.push({ year: baseYear + i, label: `${baseYear + i}`, cashFlow: cf, presentValue: cf / Math.pow(1 + dr, i) });
     }
     for (let i = 6; i <= 10; i++) {
       cf = cf * (1 + numInputs.growthRate6to10 / 100);
-      rows.push({
-        year: baseYear + i,
-        label: `${baseYear + i}`,
-        cashFlow: cf,
-        presentValue: cf / Math.pow(1 + dr, i),
-      });
+      rows.push({ year: baseYear + i, label: `${baseYear + i}`, cashFlow: cf, presentValue: cf / Math.pow(1 + dr, i) });
     }
     const terminalValue = cf * numInputs.terminalMultiple;
-    rows.push({
-      year: baseYear + 11,
-      label: `${baseYear + 10} (TV)`,
-      cashFlow: terminalValue,
-      presentValue: terminalValue / Math.pow(1 + dr, 10),
-      isTerminal: true,
-    });
+    rows.push({ year: baseYear + 11, label: `${baseYear + 10} (TV)`, cashFlow: terminalValue, presentValue: terminalValue / Math.pow(1 + dr, 10), isTerminal: true });
     return rows;
   }, [baseCF, inputs, lastYear.year]);
 
@@ -110,31 +105,42 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
     return n.toFixed(2);
   };
 
+  const renderPriceValue = () => {
+    if (priceStatus === 'loading') return <span className="flex items-center gap-1 text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" />A carregar...</span>;
+    if (!hasPriceValid) return <span className="text-muted-foreground">Indisponível</span>;
+    return formatCurrency(effectivePrice!);
+  };
+
+  const renderUpside = () => {
+    if (!result || !hasPriceValid) return <span className="text-muted-foreground">N/D</span>;
+    if (!isFinite(result.upside) || isNaN(result.upside)) return <span className="text-muted-foreground">N/D</span>;
+    return <span className={result.upside >= 0 ? "text-positive" : "text-negative"}>{formatPercent(result.upside)}</span>;
+  };
+
+  const renderIRR = () => {
+    if (!result || !hasPriceValid) return <span className="text-muted-foreground">N/D</span>;
+    if (!isFinite(result.irr) || isNaN(result.irr)) return <span className="text-muted-foreground">N/D</span>;
+    return formatPercent(result.irr);
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Inputs */}
         <div className="rounded-lg border border-border bg-card p-5 space-y-4">
           <h3 className="text-sm font-semibold text-foreground">Parâmetros DCF</h3>
-
           <div className="space-y-3">
             <div>
               <label className="text-xs text-muted-foreground">Método</label>
               <div className="mt-1 flex gap-2">
                 {(["fcf", "eps"] as const).map(m => (
-                  <button
-                    key={m}
-                    onClick={() => updateInput("method", m)}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                      inputs.method === m ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-accent"
-                    }`}
-                  >
+                  <button key={m} onClick={() => updateInput("method", m)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${inputs.method === m ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-accent"}`}>
                     {m === "fcf" ? "Free Cash Flow" : "EPS"}
                   </button>
                 ))}
               </div>
             </div>
-
             {([
               { key: "discountRate", label: "Taxa de desconto (%)" },
               { key: "growthRate1to5", label: "Crescimento anos 1-5 (%)" },
@@ -144,46 +150,67 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
             ] as const).map(({ key, label }) => (
               <div key={key}>
                 <label className="text-xs text-muted-foreground">{label}</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={inputs[key] as number | ""}
-                  placeholder="Obrigatório"
+                <input type="number" step="0.5" value={inputs[key] as number | ""} placeholder="Obrigatório"
                   onChange={e => updateInput(key, e.target.value === "" ? "" : parseFloat(e.target.value))}
-                  className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
+                  className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50" />
               </div>
             ))}
           </div>
         </div>
 
         {/* Results */}
-        {result ? (
+        {allFilled ? (
         <div className="rounded-lg border border-border bg-card p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground">Resultado</h3>
-            <StatusBadge status={result.status} />
+            <StatusBadge status={badgeStatus as any} animated={true} />
           </div>
 
           <div className="space-y-3">
-            {([
-              { label: "Preço atual", value: formatCurrency(result.currentPrice) },
-              { label: "Valor intrínseco / ação", value: formatCurrency(result.intrinsicValuePerShare), highlight: true },
-              { label: "Com margem de segurança", value: formatCurrency(result.intrinsicWithMargin) },
-              { label: "Upside", value: formatPercent(result.upside), color: result.upside >= 0 },
-              { label: "IRR esperado", value: formatPercent(result.irr) },
-              { label: "Market Cap intrínseco ($M)", value: result.intrinsicValueTotal.toLocaleString(undefined, { maximumFractionDigits: 0 }) },
-            ]).map(({ label, value, highlight, color }) => (
-              <div key={label} className={`flex items-center justify-between rounded-md px-3 py-2 ${highlight ? "gradient-glow" : "bg-secondary/50"}`}>
-                <span className="text-xs text-muted-foreground">{label}</span>
-                <span className={`font-mono text-sm font-semibold ${
-                  color !== undefined ? (color ? "text-positive" : "text-negative") : "text-foreground"
-                }`}>
-                  {value}
+            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
+              <span className="text-xs text-muted-foreground">Preço atual</span>
+              <span className="font-mono text-sm font-semibold text-foreground">{renderPriceValue()}</span>
+            </div>
+            {priceTimestamp && hasPriceValid && (
+              <div className="px-3 -mt-2">
+                <span className="text-[10px] text-muted-foreground">
+                  Atualizado: {new Date(priceTimestamp).toLocaleString('pt-PT')}
                 </span>
               </div>
-            ))}
+            )}
+            <div className="flex items-center justify-between rounded-md px-3 py-2 gradient-glow">
+              <span className="text-xs text-muted-foreground">Valor intrínseco / ação</span>
+              <span className="font-mono text-sm font-semibold text-foreground">
+                {result ? formatCurrency(result.intrinsicValuePerShare) : "N/D"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
+              <span className="text-xs text-muted-foreground">Com margem de segurança</span>
+              <span className="font-mono text-sm font-semibold text-foreground">
+                {result ? formatCurrency(result.intrinsicWithMargin) : "N/D"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
+              <span className="text-xs text-muted-foreground">Upside</span>
+              <span className="font-mono text-sm font-semibold">{renderUpside()}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
+              <span className="text-xs text-muted-foreground">IRR esperado</span>
+              <span className="font-mono text-sm font-semibold text-foreground">{renderIRR()}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
+              <span className="text-xs text-muted-foreground">Market Cap intrínseco ($M)</span>
+              <span className="font-mono text-sm font-semibold text-foreground">
+                {result ? result.intrinsicValueTotal.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/D"}
+              </span>
+            </div>
           </div>
+
+          {!hasPriceValid && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              ⚠️ Preço de mercado indisponível. Upside e classificação não podem ser calculados.
+            </div>
+          )}
         </div>
         ) : (
         <div className="rounded-lg border border-dashed border-border bg-card/50 p-8 flex items-center justify-center">
@@ -207,52 +234,25 @@ export function DCFCalculator({ company }: DCFCalculatorProps) {
                 <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">
                   {inputs.method === "fcf" ? "Cash Flow" : "EPS"} ({lastYear.year})
                 </th>
-                <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground whitespace-nowrap">
-                  {formatM(baseCF)}
-                </th>
+                <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground whitespace-nowrap">{formatM(baseCF)}</th>
                 {projections.map(p => (
-                  <th
-                    key={p.label}
-                    className={`px-3 py-2.5 text-right text-xs font-medium whitespace-nowrap ${
-                      p.isTerminal ? "text-primary" : "text-muted-foreground"
-                    }`}
-                  >
-                    {p.label}
-                  </th>
+                  <th key={p.label} className={`px-3 py-2.5 text-right text-xs font-medium whitespace-nowrap ${p.isTerminal ? "text-primary" : "text-muted-foreground"}`}>{p.label}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               <tr className="border-b border-border/50">
-                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">
-                  Projected CF
-                </td>
+                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">Projected CF</td>
                 <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">—</td>
                 {projections.map(p => (
-                  <td
-                    key={p.label}
-                    className={`px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap ${
-                      p.isTerminal ? "text-primary font-semibold" : "text-foreground"
-                    }`}
-                  >
-                    {formatM(p.cashFlow)}
-                  </td>
+                  <td key={p.label} className={`px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap ${p.isTerminal ? "text-primary font-semibold" : "text-foreground"}`}>{formatM(p.cashFlow)}</td>
                 ))}
               </tr>
               <tr>
-                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">
-                  PV ({numInputs.discountRate}%)
-                </td>
+                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">PV ({numInputs.discountRate}%)</td>
                 <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">—</td>
                 {projections.map(p => (
-                  <td
-                    key={p.label}
-                    className={`px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap ${
-                      p.isTerminal ? "text-primary font-semibold" : "text-foreground"
-                    }`}
-                  >
-                    {formatM(p.presentValue)}
-                  </td>
+                  <td key={p.label} className={`px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap ${p.isTerminal ? "text-primary font-semibold" : "text-foreground"}`}>{formatM(p.presentValue)}</td>
                 ))}
               </tr>
             </tbody>
