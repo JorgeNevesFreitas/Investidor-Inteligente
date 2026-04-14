@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { MOCK_COMPANIES } from "@/lib/mockData";
-import { formatCurrency, formatPercent } from "@/lib/calculations";
+import { DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AppLayout } from "@/components/AppLayout";
 import { TrendingUp, TrendingDown, Trash2 } from "lucide-react";
@@ -42,7 +42,7 @@ export default function Dashboard() {
   const dbTickers = new Set(dbCompanies.map(c => c.ticker));
 
   // Helper: read persisted DCF result from localStorage
-  const getSavedResult = (ticker: string): ReturnType<typeof calculateDCF> | null => {
+  const getSavedResult = (ticker: string): DCFResult | null => {
     try {
       const saved = localStorage.getItem(`dcf-result-${ticker}`);
       if (saved) return JSON.parse(saved);
