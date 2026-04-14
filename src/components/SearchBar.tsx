@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, Plus, Star, ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface SearchResult {
   ticker: string;
@@ -16,6 +18,7 @@ export function SearchBar() {
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { toast } = useToast();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   const searchTickers = useCallback(async (q: string) => {
@@ -67,6 +70,28 @@ export function SearchBar() {
     navigate(`/company/${ticker}`);
   };
 
+  const handleAddToWishlist = async (e: React.MouseEvent, item: SearchResult) => {
+    e.stopPropagation();
+    try {
+      const { error } = await supabase.from('wishlist').upsert(
+        { ticker: item.ticker, name: item.name, exchange: item.exchange },
+        { onConflict: 'ticker' }
+      );
+      if (error) throw error;
+      toast({ title: "Adicionada à Wishlist", description: `${item.name} (${item.ticker})` });
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message || "Não foi possível adicionar", variant: "destructive" });
+    }
+  };
+
+  const handleAddToDashboard = (e: React.MouseEvent, ticker: string) => {
+    e.stopPropagation();
+    setQuery("");
+    setOpen(false);
+    setResults([]);
+    navigate(`/company/${ticker}`);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && query.trim()) {
       handleSelect(query.trim().toUpperCase());
@@ -90,17 +115,37 @@ export function SearchBar() {
         )}
       </div>
       {open && (results.length > 0 || (query.length > 0 && !loading)) && (
-        <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-xl overflow-hidden max-h-80 overflow-y-auto">
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-xl overflow-hidden max-h-96 overflow-y-auto">
           {results.map(s => (
-            <button
+            <div
               key={`${s.ticker}-${s.exchange}`}
-              onClick={() => handleSelect(s.ticker)}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left"
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-accent transition-colors group"
             >
-              <span className="font-mono font-semibold text-primary">{s.ticker}</span>
-              <span className="text-foreground truncate">{s.name}</span>
-              <span className="ml-auto text-xs text-muted-foreground whitespace-nowrap">{s.exchange}</span>
-            </button>
+              <button
+                onClick={() => handleSelect(s.ticker)}
+                className="flex items-center gap-3 flex-1 min-w-0 text-left"
+              >
+                <span className="font-mono font-semibold text-primary">{s.ticker}</span>
+                <span className="text-foreground truncate">{s.name}</span>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">{s.exchange}</span>
+              </button>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => handleAddToDashboard(e, s.ticker)}
+                  title="Analisar / Adicionar ao Dashboard"
+                  className="rounded p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                >
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={(e) => handleAddToWishlist(e, s)}
+                  title="Adicionar à Wishlist"
+                  className="rounded p-1.5 text-muted-foreground hover:text-warning hover:bg-warning/10 transition-colors"
+                >
+                  <Star className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
           ))}
           {results.length === 0 && query.length > 0 && !loading && (
             <div className="px-4 py-3 text-sm text-muted-foreground">
