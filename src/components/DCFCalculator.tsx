@@ -72,6 +72,14 @@ export function DCFCalculator({ company, marketPrice, priceStatus = 'success', p
   const baseCF = inputs.method === "fcf" ? lastYear.fcf : lastYear.eps * company.sharesOutstanding;
   const result: DCFResult | null = (allFilled && hasPriceValid) ? calculateDCF(baseCF, company.sharesOutstanding, effectivePrice!, numInputs) : null;
 
+  // Persist DCF result to localStorage for dashboard consumption
+  useEffect(() => {
+    const resultKey = `dcf-result-${company.ticker}`;
+    if (result) {
+      localStorage.setItem(resultKey, JSON.stringify(result));
+    }
+  }, [result, company.ticker]);
+
   // Determine badge status
   const badgeStatus = !hasPriceValid ? "no_price" : (result?.status || "no_price");
 
