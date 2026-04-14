@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { MOCK_COMPANIES } from "@/lib/mockData";
-import { calculateDCF, formatCurrency, formatPercent } from "@/lib/calculations";
+import { DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AppLayout } from "@/components/AppLayout";
 import { TrendingUp, TrendingDown, Trash2 } from "lucide-react";
@@ -41,46 +41,22 @@ export default function Dashboard() {
   // Merge mock + DB companies (DB takes priority)
   const dbTickers = new Set(dbCompanies.map(c => c.ticker));
 
+  // Helper: read persisted DCF result from localStorage
+  const getSavedResult = (ticker: string): DCFResult | null => {
+    try {
+      const saved = localStorage.getItem(`dcf-result-${ticker}`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  };
+
   const analyses = [
     ...dbCompanies.map(c => {
-      let result: ReturnType<typeof calculateDCF> | null = null;
-      try {
-        const saved = localStorage.getItem(`dcf-inputs-${c.ticker}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          const allFilled = parsed.discountRate !== "" && parsed.growthRate1to5 !== "" && parsed.growthRate6to10 !== "" && parsed.terminalMultiple !== "" && parsed.marginOfSafety !== "";
-          if (allFilled && c.current_price && c.current_price > 0) {
-            const dcfInputs = {
-              method: parsed.method || "fcf",
-              discountRate: Number(parsed.discountRate),
-              growthRate1to5: Number(parsed.growthRate1to5),
-              growthRate6to10: Number(parsed.growthRate6to10),
-              terminalMultiple: Number(parsed.terminalMultiple),
-              marginOfSafety: Number(parsed.marginOfSafety),
-            };
-            // We'd need FCF data, but for dashboard we use a simplified approach
-            // For now just show if DCF was computed
-            result = null; // Will be computed when we have financial data
-          }
-        }
-      } catch {}
+      const result = getSavedResult(c.ticker);
       return { ticker: c.ticker, name: c.name, exchange: c.exchange || '', sector: c.sector || '', currency: c.currency || 'USD', pe: c.pe_ratio || 0, marketCap: c.market_cap || 0, currentPrice: c.current_price || 0, result, dbCompany: c, isDB: true };
     }),
     ...MOCK_COMPANIES.filter(c => !dbTickers.has(c.ticker)).map(c => {
-      const last = c.financials[c.financials.length - 1];
-      let result: ReturnType<typeof calculateDCF> | null = null;
-      try {
-        const saved = localStorage.getItem(`dcf-inputs-${c.ticker}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          const allFilled = parsed.discountRate !== "" && parsed.growthRate1to5 !== "" && parsed.growthRate6to10 !== "" && parsed.terminalMultiple !== "" && parsed.marginOfSafety !== "";
-          if (allFilled) {
-            const dcfInputs = { method: parsed.method || "fcf", discountRate: Number(parsed.discountRate), growthRate1to5: Number(parsed.growthRate1to5), growthRate6to10: Number(parsed.growthRate6to10), terminalMultiple: Number(parsed.terminalMultiple), marginOfSafety: Number(parsed.marginOfSafety) };
-            const baseCF = dcfInputs.method === "fcf" ? last.fcf : last.eps * c.sharesOutstanding;
-            result = calculateDCF(baseCF, c.sharesOutstanding, c.currentPrice, dcfInputs);
-          }
-        }
-      } catch {}
+      const result = getSavedResult(c.ticker);
       return { ticker: c.ticker, name: c.name, exchange: c.exchange, sector: c.sector, currency: c.currency, pe: c.pe, marketCap: c.marketCap, currentPrice: c.currentPrice, result, dbCompany: null as DBCompany | null, isDB: false };
     }),
   ];
