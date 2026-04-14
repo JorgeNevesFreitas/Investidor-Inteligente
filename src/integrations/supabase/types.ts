@@ -245,6 +245,39 @@ export type Database = {
           },
         ]
       }
+      wishlist: {
+        Row: {
+          added_at: string
+          created_at: string
+          exchange: string | null
+          id: string
+          name: string
+          notes: string | null
+          ticker: string
+          updated_at: string
+        }
+        Insert: {
+          added_at?: string
+          created_at?: string
+          exchange?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          ticker: string
+          updated_at?: string
+        }
+        Update: {
+          added_at?: string
+          created_at?: string
+          exchange?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          ticker?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
