@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { MOCK_COMPANIES } from "@/lib/mockData";
-import { calculateDCF, formatCurrency, formatPercent } from "@/lib/calculations";
+import { formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AppLayout } from "@/components/AppLayout";
 import { TrendingUp, TrendingDown, Trash2 } from "lucide-react";
