@@ -201,8 +201,22 @@ export default function Dashboard() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                {["Status", "Empresa", "Exchange", "Setor", "Ano Fiscal", "P/E", "Moeda", "Market Cap", "Preço", "Valor Intrínseco", "C/ Margem", "IRR", ""].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+                {[
+                  { h: "Status",           mobile: true },
+                  { h: "Empresa",          mobile: true },
+                  { h: "Exchange",         mobile: false },
+                  { h: "Setor",            mobile: false },
+                  { h: "Ano Fiscal",       mobile: false },
+                  { h: "P/E",              mobile: false },
+                  { h: "Moeda",            mobile: false },
+                  { h: "Market Cap",       mobile: false },
+                  { h: "Preço",            mobile: true },
+                  { h: "Valor Intrínseco", mobile: false },
+                  { h: "C/ Margem",        mobile: false },
+                  { h: "IRR",              mobile: true },
+                  { h: "",                 mobile: true },
+                ].map(({ h, mobile }) => (
+                  <th key={h} className={`px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap${mobile ? "" : " hidden sm:table-cell"}`}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -223,29 +237,29 @@ export default function Dashboard() {
                       )}
                     </Link>
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                  <td className="hidden sm:table-cell px-3 py-2.5 text-xs text-muted-foreground">
                     {a.quoteLoading ? <Loading /> : (a.exchange || <Dash />)}
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                  <td className="hidden sm:table-cell px-3 py-2.5 text-xs text-muted-foreground">
                     {a.quoteLoading ? <Loading /> : (a.sector || <Dash />)}
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                  <td className="hidden sm:table-cell px-3 py-2.5 text-xs text-muted-foreground">
                     {a.dbCompany?.fiscal_year_end_month
                       ? MONTH_ABBR[a.dbCompany.fiscal_year_end_month - 1]
                       : <Dash />}
                   </td>
-                  <td className="px-3 py-2.5 font-mono text-xs">
+                  <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-xs">
                     {a.quoteLoading ? <Loading /> : (a.pe ? a.pe.toFixed(1) : <Dash />)}
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground">{a.currency}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs">
+                  <td className="hidden sm:table-cell px-3 py-2.5 text-xs text-muted-foreground">{a.currency}</td>
+                  <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-xs">
                     {a.quoteLoading ? <Loading /> : fmtMarketCap(a.marketCap)}
                   </td>
                   <td className="px-3 py-2.5 font-mono text-xs">
                     {a.currentPrice > 0 ? formatCurrency(a.currentPrice, a.currency) : (a.quoteLoading ? <Loading /> : <Dash />)}
                   </td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicValuePerShare) : <Dash />}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicWithMargin) : <Dash />}</td>
+                  <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicValuePerShare) : <Dash />}</td>
+                  <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicWithMargin) : <Dash />}</td>
                   <td className="px-3 py-2.5">
                     {a.result ? (
                       <span className={`inline-flex items-center gap-1 font-mono text-xs ${a.result.irr >= 0 ? "text-positive" : "text-negative"}`}>

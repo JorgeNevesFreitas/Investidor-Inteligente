@@ -1,14 +1,31 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Search, Loader2, Plus, Star, ArrowRight } from "lucide-react";
+import { Search, Loader2, Star, ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { importFromSEC, importFromStockAnalysis } from "@/lib/financialDataService";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface SearchResult {
   ticker: string;
   name: string;
   exchange: string;
   type?: string;
+}
+
+type ImportSource = 'sec' | 'stockanalysis';
+
+const US_EXCHANGE_PATTERNS = ['Nasdaq', 'NYSE', 'OTC', 'BATS', 'Cboe'];
+
+function isUSExchange(exchange: string): boolean {
+  return US_EXCHANGE_PATTERNS.some(p => exchange.includes(p));
+}
+
+function buildSAUrl(ticker: string): string {
+  const base = ticker.replace(/\.[A-Z0-9]{1,4}$/, '');
+  return `https://stockanalysis.com/stocks/${base.toLowerCase()}/`;
 }
 
 export function SearchBar() {
@@ -21,11 +38,13 @@ export function SearchBar() {
   const { toast } = useToast();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  const [pendingImport, setPendingImport] = useState<SearchResult | null>(null);
+  const [importSource, setImportSource] = useState<ImportSource>('stockanalysis');
+  const [saUrl, setSaUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+
   const searchTickers = useCallback(async (q: string) => {
-    if (q.length < 1) {
-      setResults([]);
-      return;
-    }
+    if (q.length < 1) { setResults([]); return; }
     setLoading(true);
     try {
       const res = await fetch(
@@ -63,11 +82,29 @@ export function SearchBar() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleSelect = (ticker: string) => {
+  const handleItemSelect = async (item: SearchResult) => {
     setQuery("");
     setOpen(false);
     setResults([]);
-    navigate(`/company/${ticker}`);
+
+    // Check if company already exists in DB
+    try {
+      const { data } = await supabase
+        .from('companies').select('id').eq('ticker', item.ticker).maybeSingle();
+      if (data) {
+        navigate(`/company/${item.ticker}`);
+        return;
+      }
+    } catch {
+      navigate(`/company/${item.ticker}`);
+      return;
+    }
+
+    // Not in DB → show import confirmation modal
+    const source: ImportSource = isUSExchange(item.exchange) ? 'sec' : 'stockanalysis';
+    setImportSource(source);
+    setSaUrl(buildSAUrl(item.ticker));
+    setPendingImport(item);
   };
 
   const handleAddToWishlist = async (e: React.MouseEvent, item: SearchResult) => {
@@ -84,17 +121,38 @@ export function SearchBar() {
     }
   };
 
-  const handleAddToDashboard = (e: React.MouseEvent, ticker: string) => {
-    e.stopPropagation();
-    setQuery("");
-    setOpen(false);
-    setResults([]);
-    navigate(`/company/${ticker}`);
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && query.trim()) {
-      handleSelect(query.trim().toUpperCase());
+      const ticker = query.trim().toUpperCase();
+      const match = results.find(r => r.ticker.toUpperCase() === ticker);
+      handleItemSelect(match ?? { ticker, name: ticker, exchange: '', type: 'EQUITY' });
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!pendingImport) return;
+    setImporting(true);
+    try {
+      const result = importSource === 'sec'
+        ? await importFromSEC(pendingImport.ticker, { is_incremental: false })
+        : await importFromStockAnalysis({
+            ticker: pendingImport.ticker,
+            url: saUrl,
+            company_name: pendingImport.name,
+            exchange: pendingImport.exchange,
+            is_incremental: false,
+          });
+
+      if (result.success) {
+        setPendingImport(null);
+        navigate(`/company/${pendingImport.ticker}`);
+      } else {
+        toast({ title: 'Erro na importação', description: result.error || 'Falha', variant: 'destructive' });
+      }
+    } catch (err: any) {
+      toast({ title: 'Erro', description: err.message, variant: 'destructive' });
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -114,6 +172,7 @@ export function SearchBar() {
           <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground animate-spin" />
         )}
       </div>
+
       {open && (results.length > 0 || (query.length > 0 && !loading)) && (
         <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-xl overflow-hidden max-h-96 overflow-y-auto">
           {results.map(s => (
@@ -122,7 +181,7 @@ export function SearchBar() {
               className="flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-accent transition-colors group"
             >
               <button
-                onClick={() => handleSelect(s.ticker)}
+                onClick={() => handleItemSelect(s)}
                 className="flex items-center gap-3 flex-1 min-w-0 text-left"
               >
                 <span className="font-mono font-semibold text-primary">{s.ticker}</span>
@@ -131,14 +190,14 @@ export function SearchBar() {
               </button>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
-                  onClick={(e) => handleAddToDashboard(e, s.ticker)}
+                  onClick={e => { e.stopPropagation(); handleItemSelect(s); }}
                   title="Analisar / Adicionar ao Dashboard"
                   className="rounded p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                 >
                   <ArrowRight className="h-3.5 w-3.5" />
                 </button>
                 <button
-                  onClick={(e) => handleAddToWishlist(e, s)}
+                  onClick={e => handleAddToWishlist(e, s)}
                   title="Adicionar à Wishlist"
                   className="rounded p-1.5 text-muted-foreground hover:text-warning hover:bg-warning/10 transition-colors"
                 >
@@ -154,6 +213,98 @@ export function SearchBar() {
           )}
         </div>
       )}
+
+      {/* Import confirmation modal */}
+      <Dialog
+        open={!!pendingImport}
+        onOpenChange={open => { if (!open && !importing) setPendingImport(null); }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">Importar empresa</DialogTitle>
+          </DialogHeader>
+
+          {pendingImport && (
+            <div className="space-y-4 py-1">
+              {/* Company info */}
+              <div className="rounded-lg bg-muted/40 border border-border px-4 py-3 space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-primary">{pendingImport.ticker}</span>
+                  {pendingImport.exchange && (
+                    <span className="text-xs text-muted-foreground">{pendingImport.exchange}</span>
+                  )}
+                </div>
+                {pendingImport.name !== pendingImport.ticker && (
+                  <p className="text-xs text-foreground">{pendingImport.name}</p>
+                )}
+              </div>
+
+              {/* Source selector */}
+              <div>
+                <label className="text-xs text-muted-foreground block mb-2">Fonte de dados</label>
+                <div className="space-y-2">
+                  {([
+                    { value: 'stockanalysis' as ImportSource, label: 'StockAnalysis', desc: 'Via Firecrawl — bolsas internacionais e empresas não-americanas' },
+                    { value: 'sec' as ImportSource, label: 'SEC (XBRL)', desc: 'Dados oficiais da SEC — empresas americanas cotadas em bolsa US' },
+                  ] as const).map(opt => (
+                    <label key={opt.value} className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                      importSource === opt.value ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/30'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="confirm-import-source"
+                        value={opt.value}
+                        checked={importSource === opt.value}
+                        onChange={() => setImportSource(opt.value)}
+                        className="mt-0.5 accent-primary"
+                      />
+                      <div>
+                        <div className="text-xs font-medium text-foreground">{opt.label}</div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">{opt.desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* StockAnalysis URL — editable */}
+              {importSource === 'stockanalysis' && (
+                <div>
+                  <label className="text-xs text-muted-foreground">URL do StockAnalysis</label>
+                  <Input
+                    value={saUrl}
+                    onChange={e => setSaUrl(e.target.value)}
+                    className="mt-1 h-8 text-xs font-mono"
+                    placeholder="https://stockanalysis.com/stocks/..."
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Verifica e corrige o URL antes de importar.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              variant="outline" size="sm" className="text-xs h-8"
+              onClick={() => setPendingImport(null)}
+              disabled={importing}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm" className="text-xs h-8"
+              onClick={handleConfirmImport}
+              disabled={importing || (importSource === 'stockanalysis' && !saUrl.trim())}
+            >
+              {importing
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />A importar...</>
+                : 'Confirmar importação'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

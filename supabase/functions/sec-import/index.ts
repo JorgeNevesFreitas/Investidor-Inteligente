@@ -293,29 +293,28 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
+    const companyMeta = {
+      ...(sector ? { sector } : {}),
+      ...(fiscalYearEndMonth !== null ? { fiscal_year_end_month: fiscalYearEndMonth } : {}),
+    };
+
     let companyId: string;
     if (existingCompany) {
       companyId = existingCompany.id;
       await supabase.from('companies').update({
         name: cikResult.name, cik: cikResult.cik, region_type: 'US' as const,
         sec_enabled: true, primary_data_source: 'SEC_XBRL', country: 'US',
-        ...(sector ? { sector } : {}),
+        ...companyMeta,
       }).eq('id', companyId);
-      if (fiscalYearEndMonth !== null) {
-        await supabase.from('companies').update({ fiscal_year_end_month: fiscalYearEndMonth }).eq('id', companyId);
-      }
     } else {
       const { data: newCompany, error: insertErr } = await supabase
         .from('companies').insert({
           ticker: ticker.toUpperCase(), name: cikResult.name, cik: cikResult.cik,
           region_type: 'US' as const, sec_enabled: true, primary_data_source: 'SEC_XBRL', country: 'US',
-          ...(sector ? { sector } : {}),
+          ...companyMeta,
         }).select().single();
       if (insertErr) throw new Error(`Failed to create company: ${insertErr.message}`);
       companyId = newCompany!.id;
-      if (fiscalYearEndMonth !== null) {
-        await supabase.from('companies').update({ fiscal_year_end_month: fiscalYearEndMonth }).eq('id', companyId);
-      }
     }
 
     // Get existing years for incremental comparison

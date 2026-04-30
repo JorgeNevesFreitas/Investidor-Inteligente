@@ -433,8 +433,8 @@ export default function Portfolio() {
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">
                                     Transações
                                   </p>
-                                  <div className="rounded border border-border/60 overflow-hidden">
-                                    <table className="w-full">
+                                  <div className="rounded border border-border/60 overflow-x-auto">
+                                    <table className="w-full min-w-[420px]">
                                       <thead>
                                         <tr className="bg-secondary/40 border-b border-border/60">
                                           {["Data", "Tipo", "Preço/ação", "Qtd.", "Total", "Moeda", ""].map(h => (
@@ -480,8 +480,8 @@ export default function Portfolio() {
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">
                                     Dividendos
                                   </p>
-                                  <div className="rounded border border-border/60 overflow-hidden">
-                                    <table className="w-full">
+                                  <div className="rounded border border-border/60 overflow-x-auto">
+                                    <table className="w-full min-w-[380px]">
                                       <thead>
                                         <tr className="bg-secondary/40 border-b border-border/60">
                                           {["Data", "Valor/ação", "Qtd.", "Total recebido", "Moeda", ""].map(h => (

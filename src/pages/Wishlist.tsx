@@ -91,8 +91,8 @@ export default function Wishlist() {
                   </div>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
-                      <button className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-                        <Trash2 className="h-3.5 w-3.5" />
+                      <button className="rounded p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>

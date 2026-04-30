@@ -99,10 +99,17 @@ export function dbFinancialsToFinancialYears(financials: DBFinancialYear[]): Fin
     const grossProfit    = has('gross_profit') ? get('gross_profit') : revenue - costOfRevenue;
     const operatingIncome = get('operating_income');
     const netIncome      = get('net_income');
-    const sharesM        = get('shares_outstanding'); // always in millions after norm()
-    const eps            = has('eps_diluted') ? get('eps_diluted')
+    const sharesRaw      = get('shares_outstanding'); // always in millions after norm()
+    // Derive eps from available per-share keys first so we can back-calculate shares if needed
+    const epsRaw         = has('eps_diluted') ? get('eps_diluted')
                          : has('eps_basic')   ? get('eps_basic')
-                         : sharesM > 0        ? netIncome / sharesM
+                         : 0;
+    // If shares_outstanding is missing but eps and net_income are present, derive it (e.g. KO from SEC)
+    const sharesM        = sharesRaw > 0 ? sharesRaw
+                         : (epsRaw > 0 && netIncome > 0) ? netIncome / epsRaw
+                         : 0;
+    const eps            = epsRaw > 0 ? epsRaw
+                         : sharesM > 0 ? netIncome / sharesM
                          : 0;
     const ocf            = get('operating_cash_flow');
     const capex          = get('capital_expenditures');
@@ -118,6 +125,11 @@ export function dbFinancialsToFinancialYears(financials: DBFinancialYear[]): Fin
 
     // Dividends per share: dividendsTotal is in millions, sharesM is in millions → result in USD/share
     const dividendsPerShare = sharesM > 0 ? dividendsTotal / sharesM : 0;
+
+    const depAmort = has('depreciation_amortization') ? get('depreciation_amortization') : null;
+    const intExp   = has('interest_expense')           ? get('interest_expense')           : null;
+    const depreciationToGP = (depAmort !== null && grossProfit > 0) ? (depAmort / grossProfit) * 100 : null;
+    const interestToGP     = (intExp   !== null && grossProfit > 0) ? (intExp   / grossProfit) * 100 : null;
 
     years.push({
       year: fy.fiscal_year,
@@ -145,6 +157,8 @@ export function dbFinancialsToFinancialYears(financials: DBFinancialYear[]): Fin
       sharesOutstanding: sharesM,
       dividends: dividendsPerShare,
       payoutRatio: netIncome ? (dividendsTotal / netIncome) * 100 : 0,
+      depreciationToGP,
+      interestToGP,
     });
   }
 

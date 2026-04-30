@@ -133,16 +133,22 @@ Deno.serve(async (req) => {
     let effectiveTicker = ticker?.toUpperCase();
     
     if (url) {
-      const match = url.match(/(https:\/\/stockanalysis\.com\/stocks\/[^/]+)/);
+      // Accepts both /stocks/{ticker} and /quote/{exchange}/{ticker} URL formats
+      const match = url.match(/(https:\/\/stockanalysis\.com\/(?:stocks|quote\/[^/]+)\/[^/]+)/);
       if (!match) {
         return new Response(JSON.stringify({ success: false, error: 'Invalid StockAnalysis URL' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
       stockBase = match[1];
-      const tickerMatch = stockBase.match(/\/stocks\/([^/]+)$/);
-      if (tickerMatch) effectiveTicker = tickerMatch[1].toUpperCase();
+      // Only derive ticker from URL when no explicit ticker was provided
+      if (!ticker) {
+        const tickerMatch = stockBase.match(/\/([^/]+)$/);
+        if (tickerMatch) effectiveTicker = tickerMatch[1].toUpperCase();
+      }
     } else {
-      stockBase = `https://stockanalysis.com/stocks/${ticker.toLowerCase()}`;
+      // Strip exchange suffix (e.g. MC.PA → mc, VOD.L → vod) — StockAnalysis URLs use only the base ticker
+      const baseTicker = ticker.replace(/\.[A-Z0-9]{1,4}$/, '');
+      stockBase = `https://stockanalysis.com/stocks/${baseTicker.toLowerCase()}`;
     }
 
     console.log(`StockAnalysis import for ${effectiveTicker} (incremental=${is_incremental}, specific_year=${specific_year || 'none'})`);
@@ -218,12 +224,13 @@ Deno.serve(async (req) => {
     const cashFlowRows = extractTableRows(allMarkdown['cashflow'] || '');
 
     // Extract sector from overview page markdown
+    // Handles formats: "Sector [Value](url)", "Sector | Value", "**Sector** | [Value](url)", "Sector: Value"
     let scrapedSector: string | null = null;
     const overviewMd = allMarkdown['overview'] || '';
-    const sectorMatch = overviewMd.match(/Sector\s*[|:]\s*\[?([A-Za-z][A-Za-z &/\-]+?)(?:\]|\n|$)/i);
+    const sectorMatch = overviewMd.match(/\bSector\b\s*(?:[|:]\s*)?\[?([A-Za-z][A-Za-z ,&/'\-]+?)(?:\]|\(|\||\n|$)/i);
     if (sectorMatch) scrapedSector = sectorMatch[1].trim() || null;
 
-    // Extract fiscal year end month from Period Ending row (e.g. "Sep 2024" → 9)
+    // Extract fiscal year end month from Period Ending row (e.g. "Dec 2024" → 12, "Sep 2024" → 9)
     let fyeMonth: number | null = null;
     const MONTH_ABBR_MAP: Record<string, number> = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
     const periodRow = incomeRows.get('Period Ending') || incomeRows.get('Fiscal Year End');
@@ -237,9 +244,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Update company with metadata (sector is always safe; fiscal_year_end_month requires migration)
-    if (scrapedSector) await supabase.from('companies').update({ sector: scrapedSector }).eq('id', companyId);
-    if (fyeMonth !== null) await supabase.from('companies').update({ fiscal_year_end_month: fyeMonth }).eq('id', companyId);
+    // Update company metadata in a single call
+    const metaUpdate: Record<string, unknown> = {};
+    if (scrapedSector) metaUpdate.sector = scrapedSector;
+    if (fyeMonth !== null) metaUpdate.fiscal_year_end_month = fyeMonth;
+    if (Object.keys(metaUpdate).length > 0) {
+      await supabase.from('companies').update(metaUpdate).eq('id', companyId);
+    }
 
     const { years, indices } = getYearColumns(incomeRows);
     const bsYears = getYearColumns(balanceRows);

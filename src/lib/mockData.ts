@@ -24,6 +24,8 @@ export interface FinancialYear {
   sharesOutstanding: number;
   dividends: number;
   payoutRatio: number;
+  depreciationToGP?: number | null;
+  interestToGP?: number | null;
 }
 
 export interface Company {

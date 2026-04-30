@@ -488,15 +488,15 @@ export default function CompanyAnalysis() {
             </div>
           </div>
 
-          {/* Action buttons */}
+          {/* Action buttons — icon-only on mobile, labelled on sm+ */}
           <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isImporting} className="text-xs">
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isImporting} className="text-xs h-9 w-9 sm:w-auto sm:px-3">
               {isImporting
-                ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />A importar...</>
-                : <><RefreshCw className="h-3.5 w-3.5 mr-1" />Atualizar</>}
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span className="hidden sm:inline ml-1">A importar...</span></>
+                : <><RefreshCw className="h-3.5 w-3.5" /><span className="hidden sm:inline ml-1">Atualizar</span></>}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleImportYear} disabled={isImporting} className="text-xs">
-              <Calendar className="h-3.5 w-3.5 mr-1" />Importar ano
+            <Button variant="outline" size="sm" onClick={handleImportYear} disabled={isImporting} className="text-xs h-9 w-9 sm:w-auto sm:px-3">
+              <Calendar className="h-3.5 w-3.5" /><span className="hidden sm:inline ml-1">Importar ano</span>
             </Button>
           </div>
         </div>
@@ -616,9 +616,9 @@ export default function CompanyAnalysis() {
         {/* ── Tabs ── */}
         {displayedFinancials.length > 0 && company && (
           <Tabs defaultValue="financials" className="w-full">
-            <TabsList className="bg-secondary border border-border flex-wrap h-auto gap-1 p-1">
-              {["financials", "income", "balance", "cashflow", "ratios", "charts", "valuation", "relatorios"].map(tab => (
-                <TabsTrigger key={tab} value={tab} className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground capitalize">
+            <TabsList className="bg-secondary border border-border overflow-x-auto flex-nowrap justify-start gap-1 p-1 h-auto">
+              {["valuation", "relatorios", "financials", "ratios", "charts", "income", "balance", "cashflow"].map(tab => (
+                <TabsTrigger key={tab} value={tab} className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground capitalize shrink-0 whitespace-nowrap">
                   {tab === "financials" ? "Financials"
                     : tab === "income" ? "Income Statement"
                     : tab === "balance" ? "Balance Sheet"

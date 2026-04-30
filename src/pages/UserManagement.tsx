@@ -101,8 +101,8 @@ export default function UserManagement() {
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
           </div>
         ) : (
-          <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="rounded-lg border border-border overflow-hidden overflow-x-auto">
+            <table className="w-full min-w-[400px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Email</th>

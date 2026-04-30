@@ -280,7 +280,7 @@ export function DCFCalculator({ company, companyId, marketPrice, priceStatus = '
             </thead>
             <tbody>
               <tr className="border-b border-border/50">
-                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">Projected CF</td>
+                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10">{inputs.method === "fcf" ? "Projected FCF" : "Projected EPS"}</td>
                 <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">—</td>
                 {projections.map(p => (
                   <td key={p.label} className={`px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap ${p.isTerminal ? "text-primary font-semibold" : "text-foreground"}`}>{formatM(p.cashFlow)}</td>
