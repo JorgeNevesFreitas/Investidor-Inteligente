@@ -18,6 +18,7 @@ export interface DBCompany {
   current_price: number | null;
   market_cap: number | null;
   pe_ratio: number | null;
+  fiscal_year_end_month: number | null;
   last_imported_at: string | null;
   last_refreshed_at: string | null;
 }
@@ -59,60 +60,78 @@ export interface CompanyData {
   import_history: ImportJob[];
 }
 
+// Keys that are already per-share — never divide by 1e6 regardless of source
+const PER_SHARE_KEYS = new Set(['eps_diluted', 'eps_basic', 'book_value_per_share']);
+
 // Convert DB financial data to the FinancialYear interface used by existing components
 export function dbFinancialsToFinancialYears(financials: DBFinancialYear[]): FinancialYear[] {
   const years: FinancialYear[] = [];
 
   for (const fy of financials) {
-    const items = new Map<string, number>();
+    // Store raw value + source_type per key so we can normalise each item independently.
+    // This prevents scale errors when a year has mixed SEC (raw USD) and StockAnalysis
+    // (already-in-millions) data — e.g. revenue from SEC but FCF from a prior SA import.
+    const itemMeta = new Map<string, { value: number; source_type: string | null }>();
     for (const li of fy.financial_line_items) {
       if (li.normalized_value !== null) {
-        items.set(li.normalized_key, li.normalized_value);
+        itemMeta.set(li.normalized_key, { value: li.normalized_value, source_type: li.source_type });
       }
     }
 
-    const get = (key: string) => items.get(key) ?? 0;
-    
-    const revenue = get('revenue');
-    const grossProfit = items.has('gross_profit') ? get('gross_profit') : revenue - get('cost_of_revenue');
+    // Normalise a value to millions (or USD/share for per-share keys) based on its own source.
+    // SEC XBRL: monetary values are raw USD → ÷1e6; shares are raw count → ÷1e6; per-share unchanged.
+    // StockAnalysis / other: monetary values already in millions; shares already in millions; per-share unchanged.
+    const norm = (key: string, meta: { value: number; source_type: string | null }): number => {
+      if (PER_SHARE_KEYS.has(key)) return meta.value;
+      if (meta.source_type === 'SEC_XBRL') return meta.value / 1e6;
+      return meta.value;
+    };
+
+    const get = (key: string): number => {
+      const meta = itemMeta.get(key);
+      return meta !== undefined ? norm(key, meta) : 0;
+    };
+
+    const has = (key: string) => itemMeta.has(key);
+
+    const revenue        = get('revenue');
+    const costOfRevenue  = get('cost_of_revenue');
+    const grossProfit    = has('gross_profit') ? get('gross_profit') : revenue - costOfRevenue;
     const operatingIncome = get('operating_income');
-    const netIncome = get('net_income');
-    const sharesOutstanding = get('shares_outstanding');
-    const eps = items.has('eps_diluted') ? get('eps_diluted') : (items.has('eps_basic') ? get('eps_basic') : (sharesOutstanding > 0 ? netIncome / sharesOutstanding : 0));
-    const fcf = items.has('free_cash_flow') ? get('free_cash_flow') : (get('operating_cash_flow') - Math.abs(get('capital_expenditures')));
-    const equity = get('shareholders_equity');
-    const totalDebt = get('long_term_debt') + get('short_term_debt');
+    const netIncome      = get('net_income');
+    const sharesM        = get('shares_outstanding'); // always in millions after norm()
+    const eps            = has('eps_diluted') ? get('eps_diluted')
+                         : has('eps_basic')   ? get('eps_basic')
+                         : sharesM > 0        ? netIncome / sharesM
+                         : 0;
+    const ocf            = get('operating_cash_flow');
+    const capex          = get('capital_expenditures');
+    const fcf            = has('free_cash_flow') ? get('free_cash_flow') : ocf - Math.abs(capex);
+    const equity         = get('shareholders_equity');
+    const totalDebt      = get('long_term_debt') + get('short_term_debt');
     const dividendsTotal = Math.abs(get('dividends_paid'));
 
-    // Detect if values are in raw dollars (SEC XBRL) vs already in millions (StockAnalysis)
-    // SEC data: revenue > 1 billion → it's in raw USD, convert to millions
-    const isSECScale = Math.abs(revenue) > 1e9;
-    const toM = (v: number) => isSECScale ? v / 1e6 : v;
+    // Book value per share
+    const bookValuePerShare = has('book_value_per_share')
+      ? get('book_value_per_share')
+      : sharesM > 0 ? equity / sharesM : 0;
 
-    // Shares: SEC gives individual count, convert to millions
-    const sharesM = sharesOutstanding > 1e9 ? sharesOutstanding / 1e6 : sharesOutstanding;
-    
-    // Book value per share: SEC equity / shares (both raw), or SA provides directly
-    const bookValuePerShare = items.has('book_value_per_share') 
-      ? get('book_value_per_share') 
-      : (sharesOutstanding > 0 ? equity / sharesOutstanding : 0);
-
-    // Dividends per share
-    const dividendsPerShare = sharesOutstanding > 0 ? dividendsTotal / sharesOutstanding : 0;
+    // Dividends per share: dividendsTotal is in millions, sharesM is in millions → result in USD/share
+    const dividendsPerShare = sharesM > 0 ? dividendsTotal / sharesM : 0;
 
     years.push({
       year: fy.fiscal_year,
-      revenue: toM(revenue),
+      revenue,
       revenueGrowth: null,
-      grossProfit: toM(grossProfit),
+      grossProfit,
       grossMargin: revenue ? (grossProfit / revenue) * 100 : 0,
-      operatingIncome: toM(operatingIncome),
+      operatingIncome,
       ebitGrowth: null,
-      netIncome: toM(netIncome),
+      netIncome,
       netIncomeGrowth: null,
       eps,
       epsGrowth: null,
-      fcf: toM(fcf),
+      fcf,
       fcfGrowth: null,
       roe: equity ? (netIncome / equity) * 100 : 0,
       netMargin: revenue ? (netIncome / revenue) * 100 : 0,

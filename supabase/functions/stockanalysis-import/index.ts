@@ -157,7 +157,7 @@ Deno.serve(async (req) => {
       companyId = existingCompany.id;
       await supabase.from('companies').update({
         stockanalysis_url: stockBase,
-        primary_data_source: existingCompany.region_type === 'US' ? 'SEC_XBRL' : 'STOCKANALYSIS',
+        primary_data_source: 'STOCKANALYSIS',
         ...(company_name ? { name: company_name } : {}),
         ...(exchange ? { exchange } : {}),
       }).eq('id', companyId);
@@ -190,8 +190,9 @@ Deno.serve(async (req) => {
       status: 'running' as any,
     }).select().single();
 
-    // Scrape all three pages
+    // Scrape overview + three financial pages
     const pages = [
+      { url: `${stockBase}/`, type: 'overview' },
       { url: `${stockBase}/financials/`, type: 'income' },
       { url: `${stockBase}/financials/balance-sheet/`, type: 'balance' },
       { url: `${stockBase}/financials/cash-flow-statement/`, type: 'cashflow' },
@@ -215,6 +216,30 @@ Deno.serve(async (req) => {
     const incomeRows = extractTableRows(allMarkdown['income'] || '');
     const balanceRows = extractTableRows(allMarkdown['balance'] || '');
     const cashFlowRows = extractTableRows(allMarkdown['cashflow'] || '');
+
+    // Extract sector from overview page markdown
+    let scrapedSector: string | null = null;
+    const overviewMd = allMarkdown['overview'] || '';
+    const sectorMatch = overviewMd.match(/Sector\s*[|:]\s*\[?([A-Za-z][A-Za-z &/\-]+?)(?:\]|\n|$)/i);
+    if (sectorMatch) scrapedSector = sectorMatch[1].trim() || null;
+
+    // Extract fiscal year end month from Period Ending row (e.g. "Sep 2024" → 9)
+    let fyeMonth: number | null = null;
+    const MONTH_ABBR_MAP: Record<string, number> = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
+    const periodRow = incomeRows.get('Period Ending') || incomeRows.get('Fiscal Year End');
+    if (periodRow) {
+      for (const cell of periodRow) {
+        if (!cell || cell === '-') continue;
+        const nameMatch = cell.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i);
+        if (nameMatch) { fyeMonth = MONTH_ABBR_MAP[nameMatch[1].toLowerCase()]; break; }
+        const isoMatch = cell.match(/\d{4}-(\d{2})-\d{2}/);
+        if (isoMatch) { fyeMonth = parseInt(isoMatch[1]); break; }
+      }
+    }
+
+    // Update company with metadata (sector is always safe; fiscal_year_end_month requires migration)
+    if (scrapedSector) await supabase.from('companies').update({ sector: scrapedSector }).eq('id', companyId);
+    if (fyeMonth !== null) await supabase.from('companies').update({ fiscal_year_end_month: fyeMonth }).eq('id', companyId);
 
     const { years, indices } = getYearColumns(incomeRows);
     const bsYears = getYearColumns(balanceRows);

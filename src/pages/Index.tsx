@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { MOCK_COMPANIES } from "@/lib/mockData";
 import { DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
@@ -6,8 +6,10 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { AppLayout } from "@/components/AppLayout";
 import { TrendingUp, TrendingDown, Trash2 } from "lucide-react";
 import { listCompanies, DBCompany } from "@/lib/financialDataService";
+import { fetchLatestReportsByTicker, ReportSummary } from "@/lib/reportService";
 import { deleteCompany } from "@/lib/companyDeleteService";
 import { getAllDCFValuations } from "@/lib/dcfService";
+import { fetchQuoteData, fetchMarketPrice, QuoteData } from "@/lib/marketPriceService";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -21,11 +23,18 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
+const PRICE_POLL_MS = 30_000;
+
 export default function Dashboard() {
   const { toast } = useToast();
   const [dbCompanies, setDbCompanies] = useState<DBCompany[]>([]);
   const [dcfMap, setDcfMap] = useState<Map<string, DCFResult>>(new Map());
+  const [quoteMap, setQuoteMap] = useState<Map<string, QuoteData>>(new Map());
+  const [livePrice, setLivePrice] = useState<Map<string, number>>(new Map());
+  const [reportMap, setReportMap] = useState<Map<string, ReportSummary>>(new Map());
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Initial load: companies + DCF results + latest reports
   useEffect(() => {
     listCompanies().then(setDbCompanies);
     getAllDCFValuations().then(valuations => {
@@ -33,7 +42,56 @@ export default function Dashboard() {
       for (const v of valuations) map.set(v.ticker, v.result);
       setDcfMap(map);
     });
+    fetchLatestReportsByTicker().then(setReportMap).catch(() => {});
   }, []);
+
+  // Once companies list is ready, fetch full quotes for all tickers
+  useEffect(() => {
+    const tickers = allTickers();
+    if (tickers.length === 0) return;
+
+    Promise.all(tickers.map(t => fetchQuoteData(t).then(q => [t, q] as const))).then(pairs => {
+      setQuoteMap(new Map(pairs));
+      // Seed live prices from quotes so table isn't empty while polling starts
+      setLivePrice(prev => {
+        const next = new Map(prev);
+        for (const [t, q] of pairs) if (q.price > 0) next.set(t, q.price);
+        return next;
+      });
+    });
+
+    // Start 30s price polling
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => {
+      const ts = allTickers();
+      Promise.all(ts.map(t => fetchMarketPrice(t).then(r => [t, r.price] as const))).then(pairs => {
+        setLivePrice(prev => {
+          const next = new Map(prev);
+          for (const [t, p] of pairs) if (p > 0) next.set(t, p);
+          return next;
+        });
+      });
+    }, PRICE_POLL_MS);
+
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [dbCompanies]); // re-run when companies change
+
+  const dbTickers = new Set(dbCompanies.map(c => c.ticker));
+
+  function allTickers(): string[] {
+    const db = dbCompanies.map(c => c.ticker);
+    const mock = MOCK_COMPANIES.filter(c => !dbTickers.has(c.ticker)).map(c => c.ticker);
+    return [...db, ...mock];
+  }
+
+  const getResult = (ticker: string): DCFResult | null => {
+    if (dcfMap.has(ticker)) return dcfMap.get(ticker)!;
+    try {
+      const saved = localStorage.getItem(`dcf-result-${ticker}`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  };
 
   const handleDelete = async (company: DBCompany) => {
     const result = await deleteCompany(company.id);
@@ -45,27 +103,42 @@ export default function Dashboard() {
     }
   };
 
-  // Merge mock + DB companies (DB takes priority)
-  const dbTickers = new Set(dbCompanies.map(c => c.ticker));
-
-  const getResult = (ticker: string): DCFResult | null => {
-    // Prefer Supabase; fall back to localStorage for same-session results not yet synced
-    if (dcfMap.has(ticker)) return dcfMap.get(ticker)!;
-    try {
-      const saved = localStorage.getItem(`dcf-result-${ticker}`);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return null;
-  };
-
   const analyses = [
     ...dbCompanies.map(c => {
-      const result = getResult(c.ticker);
-      return { ticker: c.ticker, name: c.name, exchange: c.exchange || '', sector: c.sector || '', currency: c.currency || 'USD', pe: c.pe_ratio || 0, marketCap: c.market_cap || 0, currentPrice: c.current_price || 0, result, dbCompany: c, isDB: true };
+      const q = quoteMap.get(c.ticker);
+      const price = livePrice.get(c.ticker) ?? q?.price ?? c.current_price ?? 0;
+      return {
+        ticker: c.ticker,
+        name: c.name,
+        exchange: q?.exchange ?? c.exchange ?? '',
+        sector: q?.sector ?? c.sector ?? '',
+        currency: q?.currency ?? c.currency ?? 'USD',
+        pe: q?.pe ?? c.pe_ratio ?? null,
+        marketCap: q?.marketCap ?? c.market_cap ?? null,
+        currentPrice: price,
+        result: getResult(c.ticker),
+        dbCompany: c,
+        isDB: true,
+        quoteLoading: !q,
+      };
     }),
     ...MOCK_COMPANIES.filter(c => !dbTickers.has(c.ticker)).map(c => {
-      const result = getResult(c.ticker);
-      return { ticker: c.ticker, name: c.name, exchange: c.exchange, sector: c.sector, currency: c.currency, pe: c.pe, marketCap: c.marketCap, currentPrice: c.currentPrice, result, dbCompany: null as DBCompany | null, isDB: false };
+      const q = quoteMap.get(c.ticker);
+      const price = livePrice.get(c.ticker) ?? q?.price ?? c.currentPrice;
+      return {
+        ticker: c.ticker,
+        name: c.name,
+        exchange: q?.exchange ?? c.exchange,
+        sector: q?.sector ?? c.sector,
+        currency: q?.currency ?? c.currency,
+        pe: q?.pe ?? c.pe,
+        marketCap: q?.marketCap ?? c.marketCap,
+        currentPrice: price,
+        result: getResult(c.ticker),
+        dbCompany: null as DBCompany | null,
+        isDB: false,
+        quoteLoading: !q,
+      };
     }),
   ];
 
@@ -73,6 +146,20 @@ export default function Dashboard() {
     if (value === null || value === undefined || !isFinite(value) || isNaN(value)) return "N/D";
     return formatPercent(value);
   };
+
+  const fmtMarketCap = (mc: number | null) => {
+    if (!mc || mc <= 0) return "—";
+    if (mc >= 1_000_000) return `${(mc / 1_000_000).toFixed(2)}T`;
+    if (mc >= 1_000) return `${(mc / 1_000).toFixed(1)}B`;
+    return `${mc.toFixed(0)}M`;
+  };
+
+  const Dash = () => <span className="text-muted-foreground">—</span>;
+  const Loading = () => <span className="text-muted-foreground animate-pulse">···</span>;
+
+  const MONTH_ABBR = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const fmtReportPeriod = (r: ReportSummary) =>
+    r.period_month ? `${MONTH_ABBR[r.period_month - 1]} ${r.period_year}` : `FY${r.period_year}`;
 
   return (
     <AppLayout>
@@ -82,19 +169,28 @@ export default function Dashboard() {
           <p className="text-sm text-muted-foreground">Resumo das análises fundamentalistas</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="rounded-lg border border-border bg-card p-4">
             <p className="text-xs text-muted-foreground">Empresas Analisadas</p>
             <p className="mt-1 text-2xl font-bold font-mono text-foreground">{analyses.length}</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
             <p className="text-xs text-muted-foreground">Para Investir</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Preço abaixo do valor c/ margem</p>
             <p className="mt-1 text-2xl font-bold font-mono text-positive">
               {analyses.filter(a => a.result?.status === "invest").length}
             </p>
           </div>
+          <div className="rounded-lg border border-warning/25 bg-card p-4">
+            <p className="text-xs text-muted-foreground">Atento</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Preço entre margem e valor intrínseco</p>
+            <p className="mt-1 text-2xl font-bold font-mono text-neutral-warn">
+              {analyses.filter(a => a.result?.status === "watch").length}
+            </p>
+          </div>
           <div className="rounded-lg border border-border bg-card p-4">
             <p className="text-xs text-muted-foreground">Aguardar</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Preço acima do valor intrínseco</p>
             <p className="mt-1 text-2xl font-bold font-mono text-negative">
               {analyses.filter(a => a.result?.status === "wait").length}
             </p>
@@ -105,7 +201,7 @@ export default function Dashboard() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                {["Status", "Empresa", "Exchange", "Setor", "P/E", "Moeda", "Market Cap", "Preço", "Valor Intrínseco", "C/ Margem", "IRR", ""].map(h => (
+                {["Status", "Empresa", "Exchange", "Setor", "Ano Fiscal", "P/E", "Moeda", "Market Cap", "Preço", "Valor Intrínseco", "C/ Margem", "IRR", ""].map(h => (
                   <th key={h} className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -120,16 +216,36 @@ export default function Dashboard() {
                     <Link to={`/company/${a.ticker}`} className="hover:text-primary transition-colors">
                       <span className="font-semibold text-foreground">{a.name}</span>
                       <span className="ml-2 font-mono text-xs text-muted-foreground">{a.ticker}</span>
+                      {reportMap.has(a.ticker) && (
+                        <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium bg-primary/10 text-primary">
+                          {fmtReportPeriod(reportMap.get(a.ticker)!)}
+                        </span>
+                      )}
                     </Link>
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground">{a.exchange}</td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground">{a.sector}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{a.pe ? a.pe.toFixed(1) : "—"}</td>
+                  <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                    {a.quoteLoading ? <Loading /> : (a.exchange || <Dash />)}
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                    {a.quoteLoading ? <Loading /> : (a.sector || <Dash />)}
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                    {a.dbCompany?.fiscal_year_end_month
+                      ? MONTH_ABBR[a.dbCompany.fiscal_year_end_month - 1]
+                      : <Dash />}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-xs">
+                    {a.quoteLoading ? <Loading /> : (a.pe ? a.pe.toFixed(1) : <Dash />)}
+                  </td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground">{a.currency}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{a.marketCap ? `${(a.marketCap / 1000).toFixed(0)}T` : "—"}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{a.currentPrice > 0 ? formatCurrency(a.currentPrice) : "—"}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicValuePerShare) : "—"}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicWithMargin) : "—"}</td>
+                  <td className="px-3 py-2.5 font-mono text-xs">
+                    {a.quoteLoading ? <Loading /> : fmtMarketCap(a.marketCap)}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-xs">
+                    {a.currentPrice > 0 ? formatCurrency(a.currentPrice, a.currency) : (a.quoteLoading ? <Loading /> : <Dash />)}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicValuePerShare) : <Dash />}</td>
+                  <td className="px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicWithMargin) : <Dash />}</td>
                   <td className="px-3 py-2.5">
                     {a.result ? (
                       <span className={`inline-flex items-center gap-1 font-mono text-xs ${a.result.irr >= 0 ? "text-positive" : "text-negative"}`}>

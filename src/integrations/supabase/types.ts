@@ -69,6 +69,7 @@ export type Database = {
           currency: string | null
           current_price: number | null
           exchange: string | null
+          fiscal_year_end_month: number | null
           id: string
           last_imported_at: string | null
           last_refreshed_at: string | null
@@ -90,6 +91,7 @@ export type Database = {
           currency?: string | null
           current_price?: number | null
           exchange?: string | null
+          fiscal_year_end_month?: number | null
           id?: string
           last_imported_at?: string | null
           last_refreshed_at?: string | null
@@ -111,6 +113,7 @@ export type Database = {
           currency?: string | null
           current_price?: number | null
           exchange?: string | null
+          fiscal_year_end_month?: number | null
           id?: string
           last_imported_at?: string | null
           last_refreshed_at?: string | null
@@ -322,6 +325,137 @@ export type Database = {
           notes?: string | null
           ticker?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      company_reports: {
+        Row: {
+          id: string
+          ticker: string
+          company_id: string | null
+          period_year: number
+          period_month: number | null
+          report_date: string | null
+          title: string
+          content_html: string | null
+          file_path: string | null
+          file_type: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          ticker: string
+          company_id?: string | null
+          period_year: number
+          period_month?: number | null
+          report_date?: string | null
+          title: string
+          content_html?: string | null
+          file_path?: string | null
+          file_type?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          ticker?: string
+          company_id?: string | null
+          period_year?: number
+          period_month?: number | null
+          report_date?: string | null
+          title?: string
+          content_html?: string | null
+          file_path?: string | null
+          file_type?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_reports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      portfolio_transactions: {
+        Row: {
+          id: string
+          ticker: string
+          company_id: string | null
+          type: string
+          date: string
+          price_per_share: number
+          quantity: number
+          currency: string
+          fees: number
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          ticker: string
+          company_id?: string | null
+          type: string
+          date: string
+          price_per_share: number
+          quantity: number
+          currency?: string
+          fees?: number
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          ticker?: string
+          company_id?: string | null
+          type?: string
+          date?: string
+          price_per_share?: number
+          quantity?: number
+          currency?: string
+          fees?: number
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      portfolio_dividends: {
+        Row: {
+          id: string
+          ticker: string
+          company_id: string | null
+          date: string
+          amount_per_share: number
+          quantity: number
+          currency: string
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          ticker: string
+          company_id?: string | null
+          date: string
+          amount_per_share: number
+          quantity: number
+          currency?: string
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          ticker?: string
+          company_id?: string | null
+          date?: string
+          amount_per_share?: number
+          quantity?: number
+          currency?: string
+          notes?: string | null
+          created_at?: string
         }
         Relationships: []
       }

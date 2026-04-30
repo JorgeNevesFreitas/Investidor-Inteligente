@@ -93,10 +93,20 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'list') {
-      const { data: companies } = await supabase
+      const { data: companies, error: listErr } = await supabase
         .from('companies')
-        .select('id, ticker, name, exchange, sector, currency, region_type, current_price, market_cap, pe_ratio, last_imported_at, last_refreshed_at, primary_data_source')
+        .select('id, ticker, name, exchange, sector, currency, region_type, current_price, market_cap, pe_ratio, last_imported_at, last_refreshed_at, primary_data_source, fiscal_year_end_month')
         .order('updated_at', { ascending: false });
+
+      // Graceful fallback if fiscal_year_end_month column doesn't exist yet (migration pending)
+      if (listErr) {
+        const { data: fallback } = await supabase
+          .from('companies')
+          .select('id, ticker, name, exchange, sector, currency, region_type, current_price, market_cap, pe_ratio, last_imported_at, last_refreshed_at, primary_data_source')
+          .order('updated_at', { ascending: false });
+        return new Response(JSON.stringify({ success: true, companies: fallback || [] }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
 
       return new Response(JSON.stringify({
         success: true,

@@ -123,6 +123,42 @@ function chooseBestAnnualFact(entries: XBRLFact[]): XBRLFact {
   })[0];
 }
 
+function sicToSector(sic: number): string | null {
+  if ((sic >= 3570 && sic <= 3579) || (sic >= 3670 && sic <= 3679) || (sic >= 7370 && sic <= 7379)) return 'Technology';
+  if ((sic >= 2830 && sic <= 2836) || (sic >= 3840 && sic <= 3849) || (sic >= 8000 && sic <= 8099) || (sic >= 2860 && sic <= 2869)) return 'Healthcare';
+  if ((sic >= 6000 && sic <= 6499) || (sic >= 6700 && sic <= 6799)) return 'Financial Services';
+  if (sic >= 6500 && sic <= 6599) return 'Real Estate';
+  if ((sic >= 4810 && sic <= 4899) || (sic >= 7800 && sic <= 7999) || sic === 4833 || sic === 4832) return 'Communication Services';
+  if ((sic >= 1300 && sic <= 1399) || (sic >= 2900 && sic <= 2999)) return 'Energy';
+  if (sic >= 4900 && sic <= 4991) return 'Utilities';
+  if ((sic >= 1000 && sic <= 1299) || (sic >= 1400 && sic <= 1499) || (sic >= 2400 && sic <= 2499) || (sic >= 2600 && sic <= 2699) || (sic >= 2800 && sic <= 2829) || (sic >= 3300 && sic <= 3399)) return 'Basic Materials';
+  if ((sic >= 100 && sic <= 999) || (sic >= 2000 && sic <= 2199) || (sic >= 5400 && sic <= 5499)) return 'Consumer Staples';
+  if ((sic >= 2200 && sic <= 2399) || (sic >= 2500 && sic <= 2599) || (sic >= 3700 && sic <= 3799) || (sic >= 5200 && sic <= 5399) || (sic >= 5500 && sic <= 5999) || sic === 7011 || (sic >= 7200 && sic <= 7299)) return 'Consumer Cyclical';
+  if ((sic >= 1500 && sic <= 1799) || (sic >= 3400 && sic <= 3569) || (sic >= 3580 && sic <= 3669) || (sic >= 3680 && sic <= 3699) || (sic >= 4000 && sic <= 4799) || (sic >= 5000 && sic <= 5199) || (sic >= 7300 && sic <= 7399) || (sic >= 8700 && sic <= 8799)) return 'Industrials';
+  return null;
+}
+
+async function fetchEdgarSubmissions(cik: string): Promise<{ sector: string | null; fiscalYearEndMonth: number | null }> {
+  try {
+    const url = `https://data.sec.gov/submissions/CIK${cik}.json`;
+    const resp = await fetchWithRetry(url, { 'User-Agent': SEC_USER_AGENT, 'Accept': 'application/json' });
+    if (!resp.ok) return { sector: null, fiscalYearEndMonth: null };
+    const data = await resp.json();
+    const sicNum = typeof data.sic === 'string' ? parseInt(data.sic) : (data.sic ?? 0);
+    const sector = sicNum ? sicToSector(sicNum) : null;
+    let fiscalYearEndMonth: number | null = null;
+    // fiscalYearEnd is MMDD format e.g. "0930" for September 30
+    const fye = data.fiscalYearEnd;
+    if (typeof fye === 'string' && fye.length >= 2) {
+      const m = parseInt(fye.slice(0, 2));
+      if (m >= 1 && m <= 12) fiscalYearEndMonth = m;
+    }
+    return { sector, fiscalYearEndMonth };
+  } catch {
+    return { sector: null, fiscalYearEndMonth: null };
+  }
+}
+
 async function resolveCIK(ticker: string): Promise<{ cik: string; name: string } | null> {
   const resp = await fetchWithRetry(
     'https://www.sec.gov/files/company_tickers.json',
@@ -244,6 +280,9 @@ Deno.serve(async (req) => {
 
     console.log(`Resolved ${ticker} to CIK ${cikResult.cik} (${cikResult.name})`);
 
+    const { sector, fiscalYearEndMonth } = await fetchEdgarSubmissions(cikResult.cik);
+    console.log(`EDGAR metadata: sector=${sector}, fyeMonth=${fiscalYearEndMonth}`);
+
     // Upsert company
     const { data: existingCompany } = await supabase
       .from('companies')
@@ -260,15 +299,23 @@ Deno.serve(async (req) => {
       await supabase.from('companies').update({
         name: cikResult.name, cik: cikResult.cik, region_type: 'US' as const,
         sec_enabled: true, primary_data_source: 'SEC_XBRL', country: 'US',
+        ...(sector ? { sector } : {}),
       }).eq('id', companyId);
+      if (fiscalYearEndMonth !== null) {
+        await supabase.from('companies').update({ fiscal_year_end_month: fiscalYearEndMonth }).eq('id', companyId);
+      }
     } else {
       const { data: newCompany, error: insertErr } = await supabase
         .from('companies').insert({
           ticker: ticker.toUpperCase(), name: cikResult.name, cik: cikResult.cik,
           region_type: 'US' as const, sec_enabled: true, primary_data_source: 'SEC_XBRL', country: 'US',
+          ...(sector ? { sector } : {}),
         }).select().single();
       if (insertErr) throw new Error(`Failed to create company: ${insertErr.message}`);
       companyId = newCompany!.id;
+      if (fiscalYearEndMonth !== null) {
+        await supabase.from('companies').update({ fiscal_year_end_month: fiscalYearEndMonth }).eq('id', companyId);
+      }
     }
 
     // Get existing years for incremental comparison
