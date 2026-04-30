@@ -14,6 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
+      dcf_valuations: {
+        Row: {
+          id: string
+          ticker: string
+          company_id: string | null
+          method: string
+          inputs: Json
+          result: Json
+          price_at_calculation: number | null
+          calculated_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          ticker: string
+          company_id?: string | null
+          method: string
+          inputs: Json
+          result: Json
+          price_at_calculation?: number | null
+          calculated_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          ticker?: string
+          company_id?: string | null
+          method?: string
+          inputs?: Json
+          result?: Json
+          price_at_calculation?: number | null
+          calculated_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dcf_valuations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           cik: string | null

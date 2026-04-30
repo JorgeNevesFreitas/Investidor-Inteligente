@@ -491,6 +491,7 @@ export default function CompanyAnalysis() {
             <TabsContent value="valuation" className="mt-4">
               <DCFCalculator
                 company={company}
+                companyId={dbCompany?.id ?? null}
                 marketPrice={marketPrice?.price || null}
                 priceStatus={marketPrice?.status || 'loading'}
                 priceTimestamp={marketPrice?.timestamp || null}

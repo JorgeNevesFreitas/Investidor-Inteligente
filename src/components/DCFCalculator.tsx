@@ -1,11 +1,13 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Company } from "@/lib/mockData";
 import { calculateDCF, DCFInputs, DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
+import { saveDCFValuation, getDCFValuation } from "@/lib/dcfService";
 import { StatusBadge } from "./StatusBadge";
 import { Loader2 } from "lucide-react";
 
 interface DCFCalculatorProps {
   company: Company;
+  companyId?: string | null;
   marketPrice?: number | null;
   priceStatus?: 'loading' | 'success' | 'error' | 'unavailable';
   priceTimestamp?: string | null;
@@ -28,11 +30,10 @@ type FormInputs = {
   marginOfSafety: number | "";
 };
 
-export function DCFCalculator({ company, marketPrice, priceStatus = 'success', priceTimestamp }: DCFCalculatorProps) {
+export function DCFCalculator({ company, companyId, marketPrice, priceStatus = 'success', priceTimestamp }: DCFCalculatorProps) {
   const lastYear = company.financials[company.financials.length - 1];
   const storageKey = `dcf-inputs-${company.ticker}`;
 
-  // Use market price if available, fallback to company.currentPrice
   const effectivePrice = (marketPrice && marketPrice > 0) ? marketPrice : (company.currentPrice > 0 ? company.currentPrice : null);
   const hasPriceValid = effectivePrice !== null && effectivePrice > 0;
 
@@ -51,14 +52,24 @@ export function DCFCalculator({ company, marketPrice, priceStatus = 'success', p
     };
   });
 
+  // On mount: if localStorage is empty, load inputs from Supabase (cross-device restore)
+  const didLoadRef = useRef(false);
   useEffect(() => {
-    const hasAnyValue = Object.entries(inputs).some(([k, v]) => k !== "method" && v !== "");
-    if (hasAnyValue) {
-      localStorage.setItem(storageKey, JSON.stringify(inputs));
-    }
-  }, [inputs, storageKey]);
+    if (didLoadRef.current) return;
+    didLoadRef.current = true;
+    const localSaved = localStorage.getItem(storageKey);
+    if (localSaved) return;
+    getDCFValuation(company.ticker).then(saved => {
+      if (saved) setInputs(saved.inputs as FormInputs);
+    });
+  }, [company.ticker, storageKey]);
 
-  const allFilled = inputs.discountRate !== "" && inputs.growthRate1to5 !== "" && inputs.growthRate6to10 !== "" && inputs.terminalMultiple !== "" && inputs.marginOfSafety !== "";
+  const allFilled =
+    inputs.discountRate !== "" &&
+    inputs.growthRate1to5 !== "" &&
+    inputs.growthRate6to10 !== "" &&
+    inputs.terminalMultiple !== "" &&
+    inputs.marginOfSafety !== "";
 
   const numInputs: DCFInputs = {
     method: inputs.method,
@@ -70,17 +81,36 @@ export function DCFCalculator({ company, marketPrice, priceStatus = 'success', p
   };
 
   const baseCF = inputs.method === "fcf" ? lastYear.fcf : lastYear.eps * company.sharesOutstanding;
-  const result: DCFResult | null = (allFilled && hasPriceValid) ? calculateDCF(baseCF, company.sharesOutstanding, effectivePrice!, numInputs) : null;
 
-  // Persist DCF result to localStorage for dashboard consumption
+  // Memoize result so save effects only fire when inputs actually change
+  const result = useMemo((): DCFResult | null => {
+    if (!allFilled || !hasPriceValid) return null;
+    return calculateDCF(baseCF, company.sharesOutstanding, effectivePrice!, numInputs);
+  }, [
+    allFilled, hasPriceValid, baseCF, company.sharesOutstanding, effectivePrice,
+    inputs.method, inputs.discountRate, inputs.growthRate1to5,
+    inputs.growthRate6to10, inputs.terminalMultiple, inputs.marginOfSafety,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist inputs to localStorage
   useEffect(() => {
-    const resultKey = `dcf-result-${company.ticker}`;
-    if (result) {
-      localStorage.setItem(resultKey, JSON.stringify(result));
-    }
-  }, [result, company.ticker]);
+    const hasAnyValue = Object.entries(inputs).some(([k, v]) => k !== "method" && v !== "");
+    if (hasAnyValue) localStorage.setItem(storageKey, JSON.stringify(inputs));
+  }, [inputs, storageKey]);
 
-  // Determine badge status
+  // Persist result to localStorage + Supabase
+  useEffect(() => {
+    if (!result) return;
+    localStorage.setItem(`dcf-result-${company.ticker}`, JSON.stringify(result));
+    saveDCFValuation(
+      company.ticker,
+      companyId ?? null,
+      numInputs,
+      result,
+      effectivePrice ?? null
+    );
+  }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const badgeStatus = !hasPriceValid ? "no_price" : (result?.status || "no_price");
 
   const projections = useMemo(() => {
@@ -101,7 +131,7 @@ export function DCFCalculator({ company, marketPrice, priceStatus = 'success', p
     const terminalValue = cf * numInputs.terminalMultiple;
     rows.push({ year: baseYear + 11, label: `${baseYear + 10} (TV)`, cashFlow: terminalValue, presentValue: terminalValue / Math.pow(1 + dr, 10), isTerminal: true });
     return rows;
-  }, [baseCF, inputs, lastYear.year]);
+  }, [baseCF, inputs, lastYear.year]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateInput = (key: keyof FormInputs, value: number | string) => {
     setInputs(prev => ({ ...prev, [key]: value }));

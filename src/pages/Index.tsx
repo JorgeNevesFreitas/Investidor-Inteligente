@@ -7,6 +7,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { TrendingUp, TrendingDown, Trash2 } from "lucide-react";
 import { listCompanies, DBCompany } from "@/lib/financialDataService";
 import { deleteCompany } from "@/lib/companyDeleteService";
+import { getAllDCFValuations } from "@/lib/dcfService";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -23,9 +24,15 @@ import {
 export default function Dashboard() {
   const { toast } = useToast();
   const [dbCompanies, setDbCompanies] = useState<DBCompany[]>([]);
+  const [dcfMap, setDcfMap] = useState<Map<string, DCFResult>>(new Map());
 
   useEffect(() => {
     listCompanies().then(setDbCompanies);
+    getAllDCFValuations().then(valuations => {
+      const map = new Map<string, DCFResult>();
+      for (const v of valuations) map.set(v.ticker, v.result);
+      setDcfMap(map);
+    });
   }, []);
 
   const handleDelete = async (company: DBCompany) => {
@@ -41,8 +48,9 @@ export default function Dashboard() {
   // Merge mock + DB companies (DB takes priority)
   const dbTickers = new Set(dbCompanies.map(c => c.ticker));
 
-  // Helper: read persisted DCF result from localStorage
-  const getSavedResult = (ticker: string): DCFResult | null => {
+  const getResult = (ticker: string): DCFResult | null => {
+    // Prefer Supabase; fall back to localStorage for same-session results not yet synced
+    if (dcfMap.has(ticker)) return dcfMap.get(ticker)!;
     try {
       const saved = localStorage.getItem(`dcf-result-${ticker}`);
       if (saved) return JSON.parse(saved);
@@ -52,11 +60,11 @@ export default function Dashboard() {
 
   const analyses = [
     ...dbCompanies.map(c => {
-      const result = getSavedResult(c.ticker);
+      const result = getResult(c.ticker);
       return { ticker: c.ticker, name: c.name, exchange: c.exchange || '', sector: c.sector || '', currency: c.currency || 'USD', pe: c.pe_ratio || 0, marketCap: c.market_cap || 0, currentPrice: c.current_price || 0, result, dbCompany: c, isDB: true };
     }),
     ...MOCK_COMPANIES.filter(c => !dbTickers.has(c.ticker)).map(c => {
-      const result = getSavedResult(c.ticker);
+      const result = getResult(c.ticker);
       return { ticker: c.ticker, name: c.name, exchange: c.exchange, sector: c.sector, currency: c.currency, pe: c.pe, marketCap: c.marketCap, currentPrice: c.currentPrice, result, dbCompany: null as DBCompany | null, isDB: false };
     }),
   ];
