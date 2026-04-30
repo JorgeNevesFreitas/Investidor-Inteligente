@@ -1,6 +1,8 @@
 import { Link, useLocation } from "react-router-dom";
-import { BarChart3, Search, Briefcase, Star, LayoutDashboard } from "lucide-react";
+import { BarChart3, Briefcase, Star, LayoutDashboard, LogOut, Users } from "lucide-react";
 import { SearchBar } from "./SearchBar";
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -10,6 +12,7 @@ const navItems = [
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const { role, signOut } = useAuth();
 
   return (
     <div className="min-h-screen bg-background">
@@ -41,6 +44,30 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
+
+            {role === 'admin' && (
+              <Link
+                to="/admin/users"
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  location.pathname === '/admin/users'
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+              >
+                <Users className="h-3.5 w-3.5" />
+                Utilizadores
+              </Link>
+            )}
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 ml-1 text-muted-foreground hover:text-foreground"
+              onClick={signOut}
+              title="Terminar sessão"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
           </nav>
         </div>
       </header>

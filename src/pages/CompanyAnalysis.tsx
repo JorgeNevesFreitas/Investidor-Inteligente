@@ -344,6 +344,54 @@ export default function CompanyAnalysis() {
             </Button>
           </div>
         </div>
+
+        <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-base">Atualizar dados</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-1">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-2">Fonte de dados</label>
+                <div className="space-y-2">
+                  {([
+                    { value: 'sec' as ImportSource, label: 'SEC (XBRL)', desc: 'Dados oficiais da SEC — empresas americanas cotadas em bolsa US' },
+                    { value: 'stockanalysis' as ImportSource, label: 'StockAnalysis', desc: 'Via Firecrawl — bolsas internacionais e empresas não-americanas' },
+                  ] as const).map(opt => (
+                    <label key={opt.value}
+                      className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                        selectedSource === opt.value
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:bg-accent/30'
+                      }`}>
+                      <input
+                        type="radio"
+                        name="import-source"
+                        value={opt.value}
+                        checked={selectedSource === opt.value}
+                        onChange={() => setSelectedSource(opt.value)}
+                        className="mt-0.5 accent-primary"
+                      />
+                      <div>
+                        <div className="text-xs font-medium text-foreground">{opt.label}</div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">{opt.desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" size="sm" className="text-xs h-8"
+                onClick={() => setShowImportModal(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" className="text-xs h-8" onClick={handleConfirmImport}>
+                Atualizar
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </AppLayout>
     );
   }
