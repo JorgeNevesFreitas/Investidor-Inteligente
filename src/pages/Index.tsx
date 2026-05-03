@@ -32,6 +32,7 @@ export default function Dashboard() {
   const [quoteMap, setQuoteMap] = useState<Map<string, QuoteData>>(new Map());
   const [livePrice, setLivePrice] = useState<Map<string, number>>(new Map());
   const [reportMap, setReportMap] = useState<Map<string, ReportSummary>>(new Map());
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Initial load: companies + DCF results + latest reports
@@ -154,6 +155,9 @@ export default function Dashboard() {
     return `${mc.toFixed(0)}M`;
   };
 
+  const toggleFilter = (f: string) => setActiveFilter(prev => prev === f ? null : f);
+  const filteredAnalyses = activeFilter ? analyses.filter(a => a.result?.status === activeFilter) : analyses;
+
   const Dash = () => <span className="text-muted-foreground">—</span>;
   const Loading = () => <span className="text-muted-foreground animate-pulse">···</span>;
 
@@ -170,31 +174,31 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="rounded-lg border border-border bg-card p-4">
+          <button onClick={() => setActiveFilter(null)} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === null ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Empresas Analisadas</p>
             <p className="mt-1 text-2xl font-bold font-mono text-foreground">{analyses.length}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
+          </button>
+          <button onClick={() => toggleFilter("invest")} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === "invest" ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Para Investir</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Preço abaixo do valor c/ margem</p>
             <p className="mt-1 text-2xl font-bold font-mono text-positive">
               {analyses.filter(a => a.result?.status === "invest").length}
             </p>
-          </div>
-          <div className="rounded-lg border border-warning/25 bg-card p-4">
+          </button>
+          <button onClick={() => toggleFilter("watch")} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === "watch" ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Atento</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Preço entre margem e valor intrínseco</p>
             <p className="mt-1 text-2xl font-bold font-mono text-neutral-warn">
               {analyses.filter(a => a.result?.status === "watch").length}
             </p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
+          </button>
+          <button onClick={() => toggleFilter("wait")} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === "wait" ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Aguardar</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Preço acima do valor intrínseco</p>
             <p className="mt-1 text-2xl font-bold font-mono text-negative">
               {analyses.filter(a => a.result?.status === "wait").length}
             </p>
-          </div>
+          </button>
         </div>
 
         <div className="rounded-lg border border-border bg-card overflow-x-auto">
@@ -221,7 +225,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {analyses.map((a) => (
+              {filteredAnalyses.map((a) => (
                 <tr key={a.ticker} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
                   <td className="px-3 py-2.5">
                     {a.result ? <StatusBadge status={a.result.status} /> : <span className="text-xs text-muted-foreground">—</span>}

@@ -34,6 +34,7 @@ import {
   getSignedUrl,
   docxToHtml,
 } from "@/lib/reportService";
+import { PriceAlerts } from "@/components/PriceAlerts";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -593,6 +594,14 @@ export default function CompanyAnalysis() {
             ))}
           </div>
         )}
+
+        {/* ── Price Alerts ── */}
+        <PriceAlerts
+          ticker={companyTicker}
+          companyId={dbCompany?.id ?? null}
+          companyName={companyName || null}
+          currency={companyCurrency}
+        />
 
         {/* ── Year range toggle ── */}
         {allFinancials.length > 10 && (
