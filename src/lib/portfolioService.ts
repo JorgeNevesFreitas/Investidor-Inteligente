@@ -10,6 +10,7 @@ export interface PortfolioTransaction {
   quantity: number;
   currency: string;
   fees: number;
+  broker: string;
   notes: string | null;
   created_at: string;
 }
@@ -22,36 +23,58 @@ export interface PortfolioDividend {
   amount_per_share: number;
   quantity: number;
   currency: string;
+  broker: string;
   notes: string | null;
   created_at: string;
+}
+
+export interface PortfolioMember {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface PortfolioCash {
+  id: string;
+  date: string;
+  type: 'deposit' | 'withdrawal' | 'dividend' | 'buy' | 'sell';
+  ticker: string | null;
+  amount: number;
+  currency: 'EUR' | 'USD';
+  broker: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface PortfolioCashMember {
+  id: string;
+  cash_id: string;
+  member_id: string;
+  amount: number;
+  percentage: number;
 }
 
 export interface Position {
   ticker: string;
   company_name: string | null;
   currency: string;
+  broker: string | null;
   current_qty: number;
-  wac: number;             // weighted avg cost in original currency
+  wac: number;
   current_price: number | null;
 
-  // Cost basis used for % calculations (all buys ever, in EUR)
   basis_eur: number;
-  // Current cost of open shares (in EUR)
   invested_eur: number;
-  // Current market value of open shares (in EUR)
   current_value_eur: number;
 
-  // Stock P&L (realized + unrealized), in EUR
   stock_return_eur: number;
   realized_stock_eur: number;
   unrealized_stock_eur: number;
   stock_return_pct: number;
 
-  // Dividends received (in EUR)
   dividend_return_eur: number;
   dividend_return_pct: number;
 
-  // Total
   total_return_eur: number;
   total_return_pct: number;
 
@@ -60,9 +83,8 @@ export interface Position {
 }
 
 function toEur(amount: number, currency: string, eurUsd: number): number {
-  if (!isFinite(eurUsd) || eurUsd <= 0) return amount; // fallback: no conversion
+  if (!isFinite(eurUsd) || eurUsd <= 0) return amount;
   if (currency === 'EUR') return amount;
-  // Treat everything non-EUR as USD for now
   return amount / eurUsd;
 }
 
@@ -95,42 +117,33 @@ export function computePositions(
     const total_sell_qty = sells.reduce((s, t) => s + t.quantity, 0);
     const current_qty = Math.max(0, total_buy_qty - total_sell_qty);
 
-    // Currency: use last buy's currency, fallback USD
     const currency = buys.length > 0 ? buys[buys.length - 1].currency : 'USD';
+    const broker = buys.length > 0 ? buys[buys.length - 1].broker : null;
 
-    // Weighted average cost across all buys
     const total_buy_cost = buys.reduce((s, t) => s + t.price_per_share * t.quantity, 0);
     const wac = total_buy_qty > 0 ? total_buy_cost / total_buy_qty : 0;
 
-    // Cost basis: total capital deployed (used for % denominator)
     const basis_eur = toEur(total_buy_cost, currency, eurUsd);
-
-    // Current exposure (open position cost)
     const invested = wac * current_qty;
     const invested_eur = toEur(invested, currency, eurUsd);
 
-    // Current market value
     const current_price = prices.get(ticker.toUpperCase()) ?? null;
     const current_value = current_price !== null ? current_price * current_qty : invested;
     const current_value_eur = toEur(current_value, currency, eurUsd);
 
-    // Realized P&L from sells (sell_price vs WAC)
     const realized_stock = sells.reduce((s, t) => s + (t.price_per_share - wac) * t.quantity, 0);
     const realized_stock_eur = toEur(realized_stock, currency, eurUsd);
 
-    // Unrealized P&L from open position
     const unrealized_stock = current_price !== null ? (current_price - wac) * current_qty : 0;
     const unrealized_stock_eur = toEur(unrealized_stock, currency, eurUsd);
 
     const stock_return_eur = realized_stock_eur + unrealized_stock_eur;
     const stock_return_pct = basis_eur > 0 ? (stock_return_eur / basis_eur) * 100 : 0;
 
-    // Dividends
     const total_dividends = divs.reduce((s, d) => s + d.amount_per_share * d.quantity, 0);
     const dividend_return_eur = toEur(total_dividends, currency, eurUsd);
     const dividend_return_pct = basis_eur > 0 ? (dividend_return_eur / basis_eur) * 100 : 0;
 
-    // Total
     const total_return_eur = stock_return_eur + dividend_return_eur;
     const total_return_pct = basis_eur > 0 ? (total_return_eur / basis_eur) * 100 : 0;
 
@@ -138,6 +151,7 @@ export function computePositions(
       ticker,
       company_name: companyNames.get(ticker.toUpperCase()) ?? null,
       currency,
+      broker,
       current_qty,
       wac,
       current_price,
@@ -157,7 +171,6 @@ export function computePositions(
     });
   }
 
-  // Sort: open positions first (by invested desc), then closed
   return positions.sort((a, b) => {
     if (a.current_qty > 0 && b.current_qty === 0) return -1;
     if (a.current_qty === 0 && b.current_qty > 0) return 1;
@@ -185,6 +198,32 @@ export async function fetchDividends(): Promise<PortfolioDividend[]> {
   return (data || []) as PortfolioDividend[];
 }
 
+export async function fetchMembers(): Promise<PortfolioMember[]> {
+  const { data, error } = await supabase
+    .from('portfolio_members')
+    .select('*')
+    .order('name');
+  if (error) throw error;
+  return (data || []) as PortfolioMember[];
+}
+
+export async function fetchCash(): Promise<PortfolioCash[]> {
+  const { data, error } = await supabase
+    .from('portfolio_cash')
+    .select('*')
+    .order('date', { ascending: false });
+  if (error) throw error;
+  return (data || []) as PortfolioCash[];
+}
+
+export async function fetchCashMembers(): Promise<PortfolioCashMember[]> {
+  const { data, error } = await supabase
+    .from('portfolio_cash_members')
+    .select('*');
+  if (error) throw error;
+  return (data || []) as PortfolioCashMember[];
+}
+
 export async function addTransaction(
   tx: Omit<PortfolioTransaction, 'id' | 'created_at'>
 ): Promise<void> {
@@ -199,6 +238,24 @@ export async function addDividend(
   if (error) throw error;
 }
 
+export async function addCashEntryWithMembers(
+  entry: Omit<PortfolioCash, 'id' | 'created_at'>,
+  memberSplits: { member_id: string; amount: number; percentage: number }[]
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('portfolio_cash')
+    .insert(entry)
+    .select('id')
+    .single();
+  if (error) throw error;
+  if (memberSplits.length > 0) {
+    const { error: memberError } = await supabase
+      .from('portfolio_cash_members')
+      .insert(memberSplits.map(s => ({ ...s, cash_id: data.id })));
+    if (memberError) throw memberError;
+  }
+}
+
 export async function deleteTransaction(id: string): Promise<void> {
   const { error } = await supabase.from('portfolio_transactions').delete().eq('id', id);
   if (error) throw error;
@@ -206,5 +263,10 @@ export async function deleteTransaction(id: string): Promise<void> {
 
 export async function deleteDividend(id: string): Promise<void> {
   const { error } = await supabase.from('portfolio_dividends').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteCashEntry(id: string): Promise<void> {
+  const { error } = await supabase.from('portfolio_cash').delete().eq('id', id);
   if (error) throw error;
 }

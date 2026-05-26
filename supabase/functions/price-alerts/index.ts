@@ -230,32 +230,46 @@ Deno.serve(async (req) => {
 
       const prevStatus = historyMap.get(v.ticker);
 
-      // Send email only when status actually changed (skip first time — no previous status)
+      // Send email only when status changed AND user has an active auto alert for the new status
       if (prevStatus !== undefined && prevStatus !== null && prevStatus !== newStatus) {
-        const { data: company } = await supabase
-          .from('companies')
-          .select('name, currency')
+        const alertCategory = newStatus === 'invest' ? 'auto_invest'
+          : newStatus === 'watch' ? 'auto_atento'
+          : 'auto_aguardar';
+
+        const { data: autoAlert } = await supabase
+          .from('price_alerts')
+          .select('id')
           .eq('ticker', v.ticker)
+          .eq('alert_category', alertCategory)
+          .eq('is_active', true)
           .maybeSingle();
 
-        const currency = company?.currency || quote.currency || 'USD';
-        const name     = company?.name || v.ticker;
+        if (autoAlert) {
+          const { data: company } = await supabase
+            .from('companies')
+            .select('name, currency')
+            .eq('ticker', v.ticker)
+            .maybeSingle();
 
-        const subject = `🔔 Alerta: ${v.ticker} passou para ${statusLabel(newStatus)}`;
-        const html    = statusChangeEmail({
-          ticker: v.ticker,
-          name,
-          oldStatus: prevStatus,
-          newStatus,
-          price: quote.price,
-          intrinsicValuePerShare: result.intrinsicValuePerShare,
-          intrinsicWithMargin:    result.intrinsicWithMargin,
-          currency,
-        });
+          const currency = company?.currency || quote.currency || 'USD';
+          const name     = company?.name || v.ticker;
 
-        await sendEmail(resendKey, ALERT_EMAIL, subject, html);
-        results.statusChanges++;
-        console.log(`Status change: ${v.ticker} ${prevStatus} → ${newStatus}`);
+          const subject = `🔔 Alerta: ${v.ticker} passou para ${statusLabel(newStatus)}`;
+          const html    = statusChangeEmail({
+            ticker: v.ticker,
+            name,
+            oldStatus: prevStatus,
+            newStatus,
+            price: quote.price,
+            intrinsicValuePerShare: result.intrinsicValuePerShare,
+            intrinsicWithMargin:    result.intrinsicWithMargin,
+            currency,
+          });
+
+          await sendEmail(resendKey, ALERT_EMAIL, subject, html);
+          results.statusChanges++;
+          console.log(`Status change: ${v.ticker} ${prevStatus} → ${newStatus}`);
+        }
       }
     } catch (e) {
       console.error(`Error processing ${v.ticker}:`, e);
@@ -269,7 +283,8 @@ Deno.serve(async (req) => {
     .from('price_alerts')
     .select('*')
     .eq('is_active', true)
-    .eq('triggered', false);
+    .eq('triggered', false)
+    .eq('alert_category', 'manual');
 
   // Group by ticker to avoid fetching the same price multiple times
   const alertsByTicker = new Map<string, typeof alerts>();

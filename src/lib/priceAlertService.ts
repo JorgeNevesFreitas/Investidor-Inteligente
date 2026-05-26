@@ -5,13 +5,14 @@ export interface PriceAlert {
   ticker: string;
   company_id: string | null;
   company_name: string | null;
-  alert_type: "above" | "below";
-  target_price: number;
+  alert_type: "above" | "below" | null;
+  target_price: number | null;
   currency: string;
   is_active: boolean;
   triggered: boolean;
   triggered_at: string | null;
   created_at: string;
+  alert_category: 'manual' | 'auto_invest' | 'auto_atento' | 'auto_aguardar';
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,7 +25,10 @@ export async function fetchAlertsForTicker(ticker: string): Promise<PriceAlert[]
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
-  return data ?? [];
+  return (data ?? []).map((a: PriceAlert) => ({
+    ...a,
+    alert_category: a.alert_category ?? 'manual',
+  }));
 }
 
 export async function createPriceAlert(opts: {
@@ -37,14 +41,57 @@ export async function createPriceAlert(opts: {
 }): Promise<PriceAlert> {
   const { data, error } = await table()
     .insert({
-      ticker:       opts.ticker.toUpperCase(),
-      company_id:   opts.companyId,
-      company_name: opts.companyName,
-      alert_type:   opts.alertType,
-      target_price: opts.targetPrice,
-      currency:     opts.currency,
-      is_active:    true,
-      triggered:    false,
+      ticker:         opts.ticker.toUpperCase(),
+      company_id:     opts.companyId,
+      company_name:   opts.companyName,
+      alert_type:     opts.alertType,
+      target_price:   opts.targetPrice,
+      currency:       opts.currency,
+      is_active:      true,
+      triggered:      false,
+      alert_category: 'manual',
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function upsertAutoAlert(opts: {
+  ticker: string;
+  companyId: string | null;
+  companyName: string | null;
+  category: 'auto_invest' | 'auto_atento' | 'auto_aguardar';
+  isActive: boolean;
+}): Promise<PriceAlert> {
+  const { data: existing } = await table()
+    .select("id")
+    .eq("ticker", opts.ticker.toUpperCase())
+    .eq("alert_category", opts.category)
+    .maybeSingle();
+
+  if (existing) {
+    const { data, error } = await table()
+      .update({ is_active: opts.isActive, updated_at: new Date().toISOString() })
+      .eq("id", existing.id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  const { data, error } = await table()
+    .insert({
+      ticker:         opts.ticker.toUpperCase(),
+      company_id:     opts.companyId,
+      company_name:   opts.companyName,
+      alert_category: opts.category,
+      alert_type:     null,
+      target_price:   null,
+      currency:       'USD',
+      is_active:      opts.isActive,
+      triggered:      false,
     })
     .select()
     .single();
