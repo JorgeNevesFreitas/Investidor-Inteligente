@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { MOCK_COMPANIES } from "@/lib/mockData";
 import { DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
@@ -10,6 +10,8 @@ import { fetchLatestReportsByTicker, ReportSummary } from "@/lib/reportService";
 import { deleteCompany } from "@/lib/companyDeleteService";
 import { getAllDCFValuations } from "@/lib/dcfService";
 import { fetchQuoteData, fetchMarketPrice, QuoteData } from "@/lib/marketPriceService";
+import { fetchTransactions } from "@/lib/portfolioService";
+import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -25,6 +27,15 @@ import {
 
 const PRICE_POLL_MS = 30_000;
 
+function computeLiveStatus(
+  price: number,
+  result: { intrinsicValuePerShare: number; intrinsicWithMargin: number },
+): 'invest' | 'watch' | 'wait' {
+  if (price <= result.intrinsicWithMargin) return 'invest';
+  if (price <= result.intrinsicValuePerShare) return 'watch';
+  return 'wait';
+}
+
 export default function Dashboard() {
   const { toast } = useToast();
   const [dbCompanies, setDbCompanies] = useState<DBCompany[]>([]);
@@ -34,6 +45,8 @@ export default function Dashboard() {
   const [reportMap, setReportMap] = useState<Map<string, ReportSummary>>(new Map());
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevStatusesRef = useRef<Map<string, string>>(new Map());
+  const [openPositionTickers, setOpenPositionTickers] = useState<Set<string>>(new Set());
 
   // Initial load: companies + DCF results + latest reports
   useEffect(() => {
@@ -44,6 +57,17 @@ export default function Dashboard() {
       setDcfMap(map);
     });
     fetchLatestReportsByTicker().then(setReportMap).catch(() => {});
+    fetchTransactions().then(txns => {
+      const qtyMap = new Map<string, number>();
+      for (const tx of txns) {
+        const key = tx.ticker.toUpperCase();
+        const cur = qtyMap.get(key) ?? 0;
+        qtyMap.set(key, tx.type === 'buy' ? cur + tx.quantity : cur - tx.quantity);
+      }
+      const open = new Set<string>();
+      for (const [ticker, qty] of qtyMap) if (qty > 0) open.add(ticker);
+      setOpenPositionTickers(open);
+    }).catch(() => {});
   }, []);
 
   // Once companies list is ready, fetch full quotes for all tickers
@@ -76,6 +100,29 @@ export default function Dashboard() {
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [dbCompanies]); // re-run when companies change
+
+  // Recompute status live from current price vs stored intrinsic values
+  const liveStatuses = useMemo(() => {
+    const map = new Map<string, 'invest' | 'watch' | 'wait'>();
+    for (const [ticker, price] of livePrice.entries()) {
+      const result = dcfMap.get(ticker);
+      if (!result || price <= 0) continue;
+      map.set(ticker, computeLiveStatus(price, result));
+    }
+    return map;
+  }, [livePrice, dcfMap]);
+
+  // Detect status changes and trigger price-alerts edge function for email notifications
+  useEffect(() => {
+    if (liveStatuses.size === 0) return;
+    let changed = false;
+    for (const [ticker, newStatus] of liveStatuses) {
+      const prev = prevStatusesRef.current.get(ticker);
+      if (prev !== undefined && prev !== newStatus) { changed = true; break; }
+    }
+    if (changed) supabase.functions.invoke('price-alerts').catch(() => {});
+    prevStatusesRef.current = new Map(liveStatuses);
+  }, [liveStatuses]);
 
   const dbTickers = new Set(dbCompanies.map(c => c.ticker));
 
@@ -156,7 +203,9 @@ export default function Dashboard() {
   };
 
   const toggleFilter = (f: string) => setActiveFilter(prev => prev === f ? null : f);
-  const filteredAnalyses = activeFilter ? analyses.filter(a => a.result?.status === activeFilter) : analyses;
+  const filteredAnalyses = activeFilter
+    ? analyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === activeFilter)
+    : analyses;
 
   const Dash = () => <span className="text-muted-foreground">—</span>;
   const Loading = () => <span className="text-muted-foreground animate-pulse">···</span>;
@@ -182,21 +231,21 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground">Para Investir</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Preço abaixo do valor c/ margem</p>
             <p className="mt-1 text-2xl font-bold font-mono text-positive">
-              {analyses.filter(a => a.result?.status === "invest").length}
+              {analyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === "invest").length}
             </p>
           </button>
           <button onClick={() => toggleFilter("watch")} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === "watch" ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Atento</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Preço entre margem e valor intrínseco</p>
             <p className="mt-1 text-2xl font-bold font-mono text-neutral-warn">
-              {analyses.filter(a => a.result?.status === "watch").length}
+              {analyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === "watch").length}
             </p>
           </button>
           <button onClick={() => toggleFilter("wait")} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === "wait" ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Aguardar</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Preço acima do valor intrínseco</p>
             <p className="mt-1 text-2xl font-bold font-mono text-negative">
-              {analyses.filter(a => a.result?.status === "wait").length}
+              {analyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === "wait").length}
             </p>
           </button>
         </div>
@@ -228,7 +277,17 @@ export default function Dashboard() {
               {filteredAnalyses.map((a) => (
                 <tr key={a.ticker} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
                   <td className="px-3 py-2.5">
-                    {a.result ? <StatusBadge status={a.result.status} /> : <span className="text-xs text-muted-foreground">—</span>}
+                    <div className="flex items-center gap-1.5">
+                      {(() => {
+                        const status = liveStatuses.get(a.ticker) ?? a.result?.status;
+                        return status
+                          ? <StatusBadge status={status} />
+                          : <span className="text-xs text-muted-foreground">—</span>;
+                      })()}
+                      {openPositionTickers.has(a.ticker.toUpperCase()) && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" title="Posição aberta" />
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5">
                     <Link to={`/company/${a.ticker}`} className="hover:text-primary transition-colors">
