@@ -226,8 +226,35 @@ export interface ImportResult {
   years_available?: number[];
   missing_years?: number[];
   logs?: string[];
+  // Non-fatal issues on an otherwise-successful import (e.g. a statement page that failed
+  // to scrape, or a statement type that came back with no extractable data) — surface these
+  // so partial/incomplete data isn't mistaken for a clean import.
+  warnings?: string[];
   error?: string;
   company_id?: string;
+  // When the Edge Function detects the chosen source can't serve this company
+  // (e.g. a foreign private issuer filing IFRS 20-F instead of US-GAAP 10-K),
+  // it names a better-suited source here so the UI can suggest switching to it.
+  suggest_alternative_source?: 'sec' | 'stockanalysis';
+}
+
+// supabase-js only sets a generic "Edge Function returned a non-2xx status code"
+// message on invoke() errors — the actual error detail our functions return in the
+// JSON body (e.g. "No annual financial data found...") is left on error.context,
+// the raw Response. Read it back out so users see the real reason, not the generic one.
+async function extractFunctionError(error: any): Promise<{ message: string; suggestAlternativeSource?: 'sec' | 'stockanalysis' }> {
+  const context = error?.context;
+  if (context && typeof context.json === 'function') {
+    try {
+      const body = await (typeof context.clone === 'function' ? context.clone() : context).json();
+      if (body && typeof body.error === 'string') {
+        return { message: body.error, suggestAlternativeSource: body.suggest_alternative_source };
+      }
+    } catch {
+      // Response body wasn't JSON (or already consumed) — fall through to generic message.
+    }
+  }
+  return { message: error?.message || 'Erro desconhecido' };
 }
 
 export async function importFromSEC(ticker: string, options?: { specific_year?: number; is_incremental?: boolean }): Promise<ImportResult> {
@@ -236,7 +263,8 @@ export async function importFromSEC(ticker: string, options?: { specific_year?: 
   });
 
   if (error) {
-    return { success: false, error: error.message };
+    const { message, suggestAlternativeSource } = await extractFunctionError(error);
+    return { success: false, error: message, suggest_alternative_source: suggestAlternativeSource };
   }
   return data;
 }
@@ -254,7 +282,8 @@ export async function importFromStockAnalysis(params: {
   });
 
   if (error) {
-    return { success: false, error: error.message };
+    const { message, suggestAlternativeSource } = await extractFunctionError(error);
+    return { success: false, error: message, suggest_alternative_source: suggestAlternativeSource };
   }
   return data;
 }

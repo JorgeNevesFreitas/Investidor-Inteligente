@@ -350,6 +350,8 @@ Deno.serve(async (req) => {
 
     const factsData = await factsResp.json();
     const facts = factsData.facts || {};
+    const hasUsGaapFacts = !!facts['us-gaap'] && Object.keys(facts['us-gaap']).length > 0;
+    const hasIfrsFacts = !!facts['ifrs-full'] && Object.keys(facts['ifrs-full']).length > 0;
 
     // Determine target years
     const currentYear = new Date().getFullYear();
@@ -370,9 +372,20 @@ Deno.serve(async (req) => {
     console.log(`DB years: ${existingDbYears.join(', ')}`);
 
     if (yearData.size === 0) {
-      const errMsg = specific_year ? `No data found for year ${specific_year}` : 'No annual financial data found in SEC XBRL';
+      let errMsg: string;
+      let suggestAlternativeSource: string | undefined;
+
+      if (!hasUsGaapFacts && hasIfrsFacts) {
+        // Foreign private issuer filing Form 20-F under IFRS (e.g. Ferrari N.V./RACE) —
+        // has no US-GAAP/10-K data for our XBRL mappings to extract.
+        errMsg = `${cikResult.name} reporta à SEC em IFRS (Formulário 20-F), não em US-GAAP/10-K. A importação SEC XBRL só suporta empresas com filings 10-K em US-GAAP. Usa a fonte StockAnalysis para esta empresa.`;
+        suggestAlternativeSource = 'stockanalysis';
+      } else {
+        errMsg = specific_year ? `No data found for year ${specific_year}` : 'No annual financial data found in SEC XBRL';
+      }
+
       if (job) await supabase.from('import_jobs').update({ status: 'failed' as const, finished_at: new Date().toISOString(), error_details: errMsg }).eq('id', job.id);
-      return new Response(JSON.stringify({ success: false, error: errMsg }),
+      return new Response(JSON.stringify({ success: false, error: errMsg, suggest_alternative_source: suggestAlternativeSource }),
         { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 

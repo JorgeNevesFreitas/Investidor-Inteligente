@@ -144,8 +144,20 @@ export function SearchBar() {
           });
 
       if (result.success) {
+        if (result.warnings?.length) {
+          toast({ title: "Dados possivelmente incompletos", description: result.warnings.join(" "), variant: "destructive" });
+        }
         setPendingImport(null);
         navigate(`/company/${pendingImport.ticker}`);
+      } else if (result.suggest_alternative_source === 'stockanalysis' && importSource === 'sec') {
+        // SEC can't serve this company (e.g. foreign private issuer filing IFRS 20-F) —
+        // switch the pre-selected source so the user can just confirm again.
+        setImportSource('stockanalysis');
+        toast({
+          title: 'SEC sem dados compatíveis',
+          description: `${result.error} A fonte foi alterada para StockAnalysis — confirma novamente para importar.`,
+          variant: 'destructive',
+        });
       } else {
         toast({ title: 'Erro na importação', description: result.error || 'Falha', variant: 'destructive' });
       }

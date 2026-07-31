@@ -39,9 +39,29 @@ function getYearColumns(rows: Map<string, string[]>): { years: number[]; indices
   return { years, indices };
 }
 
+// On StockAnalysis's condensed "Financial Highlights" table layout (served for some tickers,
+// e.g. foreign filers like Ferrari/RACE, instead of the full itemized statement), each metric
+// cell stacks a value row and its "X Growth" row inside the same table cell. Firecrawl's
+// markdown conversion collapses that stack with no separator, so the row label comes out as
+// e.g. "RevenueRevenue Growth" or "Earnings Per ShareEPS Growth" instead of a clean "Revenue".
+// Fall back to a prefix match when the exact label isn't found. The lookahead character check
+// tells apart the mangled value row ("RevenueRevenue Growth", no space after the prefix) from
+// the separate, legitimate "Revenue Growth" percentage row (space after the prefix) — we must
+// only ever match the former.
+function findRow(rows: Map<string, string[]>, label: string): string[] | undefined {
+  const exact = rows.get(label);
+  if (exact) return exact;
+  for (const [key, values] of rows.entries()) {
+    if (key.length > label.length && key.startsWith(label) && key[label.length] !== ' ') {
+      return values;
+    }
+  }
+  return undefined;
+}
+
 function getVal(rows: Map<string, string[]>, labels: string[], colIdx: number): number | null {
   for (const label of labels) {
-    const row = rows.get(label);
+    const row = findRow(rows, label);
     if (row && colIdx < row.length) {
       const v = parseNumber(row[colIdx]);
       if (v !== null) return v;
@@ -50,15 +70,41 @@ function getVal(rows: Map<string, string[]>, labels: string[], colIdx: number): 
   return null;
 }
 
+// Scrapes a single StockAnalysis page via Firecrawl, retrying on transient failures
+// (network errors, rate limits, empty responses) so one flaky page doesn't silently
+// zero out an entire statement for the whole import.
+async function scrapePageWithRetry(apiKey: string, url: string, retries = 3): Promise<string> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, formats: ['markdown'], onlyMainContent: true }),
+      });
+      const data = await response.json();
+      const markdown = data.data?.markdown || data.markdown || '';
+      if (response.ok && markdown) return markdown;
+      console.error(`Scrape attempt ${i + 1}/${retries} failed for ${url}: status=${response.status}`, response.ok ? '(empty markdown)' : data);
+    } catch (e) {
+      console.error(`Scrape attempt ${i + 1}/${retries} threw for ${url}:`, e);
+    }
+    if (i < retries - 1) await new Promise((r) => setTimeout(r, Math.pow(2, i + 1) * 1000));
+  }
+  return '';
+}
+
 const SA_INCOME_MAPPINGS: Record<string, { labels: string[]; statementType: string }> = {
-  revenue: { labels: ['Revenue'], statementType: 'income_statement' },
+  revenue: { labels: ['Revenue', 'Revenue (Total)'], statementType: 'income_statement' },
   cost_of_revenue: { labels: ['Cost of Revenue'], statementType: 'income_statement' },
   gross_profit: { labels: ['Gross Profit'], statementType: 'income_statement' },
   operating_income: { labels: ['Operating Income', 'Operating Income (EBIT)'], statementType: 'income_statement' },
   net_income: { labels: ['Net Income', 'Net Income to Common'], statementType: 'income_statement' },
-  eps_basic: { labels: ['EPS (Basic)'], statementType: 'income_statement' },
-  eps_diluted: { labels: ['EPS (Diluted)'], statementType: 'income_statement' },
-  shares_outstanding: { labels: ['Shares Outstanding (Diluted)', 'Shares Outstanding (Basic)'], statementType: 'income_statement' },
+  // Some pages only show a single combined EPS figure ("Earnings Per Share") instead of the
+  // Basic/Diluted breakdown — fall back to it so eps_diluted (checked first downstream) still
+  // gets populated rather than silently staying at 0.
+  eps_basic: { labels: ['EPS (Basic)', 'Earnings Per Share'], statementType: 'income_statement' },
+  eps_diluted: { labels: ['EPS (Diluted)', 'Earnings Per Share'], statementType: 'income_statement' },
+  shares_outstanding: { labels: ['Shares Outstanding (Diluted)', 'Shares Outstanding (Basic)', 'Shares Outstanding'], statementType: 'income_statement' },
   sga: { labels: ['Selling, General & Admin'], statementType: 'income_statement' },
   rd: { labels: ['Research & Development'], statementType: 'income_statement' },
   ebitda: { labels: ['EBITDA'], statementType: 'income_statement' },
@@ -205,18 +251,12 @@ Deno.serve(async (req) => {
     ];
 
     const allMarkdown: Record<string, string> = {};
+    const failedPages: string[] = [];
     for (const page of pages) {
       console.log(`Scraping: ${page.url}`);
-      try {
-        const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: page.url, formats: ['markdown'], onlyMainContent: true }),
-        });
-        const data = await response.json();
-        if (response.ok) allMarkdown[page.type] = data.data?.markdown || data.markdown || '';
-        else console.error(`Failed to scrape ${page.type}:`, data);
-      } catch (e) { console.error(`Error scraping ${page.type}:`, e); }
+      const markdown = await scrapePageWithRetry(apiKey, page.url);
+      if (markdown) allMarkdown[page.type] = markdown;
+      else failedPages.push(page.type);
     }
 
     const incomeRows = extractTableRows(allMarkdown['income'] || '');
@@ -230,12 +270,29 @@ Deno.serve(async (req) => {
     const sectorMatch = overviewMd.match(/\bSector\b\s*(?:[|:]\s*)?\[?([A-Za-z][A-Za-z ,&/'\-]+?)(?:\]|\(|\||\n|$)/i);
     if (sectorMatch) scrapedSector = sectorMatch[1].trim() || null;
 
-    // Extract fiscal year end month from Period Ending row (e.g. "Dec 2024" → 12, "Sep 2024" → 9)
+    // Extract reporting currency of the financial statements (distinct from the trading/price
+    // currency) — e.g. "Financials in millions EUR." for foreign filers like Ferrari (RACE),
+    // whose shares trade in USD on the NYSE but whose statements are reported in EUR.
+    let scrapedCurrency: string | null = null;
+    const incomeMd = allMarkdown['income'] || '';
+    const currencyMatch = incomeMd.match(/Financials in (?:millions|thousands|billions)\s+([A-Z]{3})\b/i);
+    if (currencyMatch) scrapedCurrency = currencyMatch[1].toUpperCase();
+
+    const { years, indices } = getYearColumns(incomeRows);
+    const bsYears = getYearColumns(balanceRows);
+    const cfYears = getYearColumns(cashFlowRows);
+
+    // Extract fiscal year end month from the Period Ending row, reading an actual fiscal-year
+    // column (from `indices`) rather than column 0 — column 0 is the TTM/"Current" column, whose
+    // as-of date does not represent the company's fiscal year end and, on pages with multiple
+    // repeated "Period Ending" rows (StockAnalysis shows one per section), can belong to a
+    // different section than the annual figures.
     let fyeMonth: number | null = null;
     const MONTH_ABBR_MAP: Record<string, number> = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
     const periodRow = incomeRows.get('Period Ending') || incomeRows.get('Fiscal Year End');
     if (periodRow) {
-      for (const cell of periodRow) {
+      for (const idx of (indices.length > 0 ? indices : periodRow.map((_, i) => i))) {
+        const cell = periodRow[idx];
         if (!cell || cell === '-') continue;
         const nameMatch = cell.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i);
         if (nameMatch) { fyeMonth = MONTH_ABBR_MAP[nameMatch[1].toLowerCase()]; break; }
@@ -248,13 +305,10 @@ Deno.serve(async (req) => {
     const metaUpdate: Record<string, unknown> = {};
     if (scrapedSector) metaUpdate.sector = scrapedSector;
     if (fyeMonth !== null) metaUpdate.fiscal_year_end_month = fyeMonth;
+    if (scrapedCurrency) metaUpdate.currency = scrapedCurrency;
     if (Object.keys(metaUpdate).length > 0) {
       await supabase.from('companies').update(metaUpdate).eq('id', companyId);
     }
-
-    const { years, indices } = getYearColumns(incomeRows);
-    const bsYears = getYearColumns(balanceRows);
-    const cfYears = getYearColumns(cashFlowRows);
 
     console.log(`Found years: ${years.join(', ')}`);
 
@@ -286,9 +340,16 @@ Deno.serve(async (req) => {
     const updatedYears: number[] = [];
     const skippedYears: number[] = [];
     const logs: string[] = [];
+    const warnings: string[] = [];
     const sourceType = url ? 'STOCKANALYSIS_LINK' : 'STOCKANALYSIS_AUTO';
     const importMethod = specific_year ? 'manual_entry' : (url ? 'manual_link' : 'auto_stockanalysis');
     const allMappings = { ...SA_INCOME_MAPPINGS, ...SA_BALANCE_MAPPINGS, ...SA_CASHFLOW_MAPPINGS };
+
+    if (failedPages.length > 0) {
+      warnings.push(`Falha ao obter a página de ${failedPages.join(', ')} da StockAnalysis após várias tentativas — esses dados podem estar em falta. Tenta atualizar novamente.`);
+    }
+
+    let incomeItemsFoundAcrossYears = false;
 
     for (let yi = 0; yi < yearsToImport.length; yi++) {
       const fy = yearsToImport[yi];
@@ -311,8 +372,11 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Count how many items have data
+      // Count how many items have data, broken down by statement type so we can detect
+      // a statement that came back entirely empty (e.g. a page that failed to scrape or
+      // whose table layout didn't match our labels) instead of silently marking it "imported".
       let itemCount = 0;
+      let incomeItemCount = 0;
       for (const [, mapping] of Object.entries(allMappings)) {
         let rows: Map<string, string[]>;
         let colIdx: number;
@@ -320,10 +384,14 @@ Deno.serve(async (req) => {
         else if (mapping.statementType === 'balance_sheet') { rows = balanceRows; colIdx = bsIdx; }
         else { rows = cashFlowRows; colIdx = cfIdx; }
         const val = getVal(rows, mapping.labels, colIdx);
-        if (val !== null) itemCount++;
+        if (val !== null) {
+          itemCount++;
+          if (mapping.statementType === 'income_statement') incomeItemCount++;
+        }
       }
+      if (incomeItemCount > 0) incomeItemsFoundAcrossYears = true;
 
-      const dataStatus = itemCount < 5 ? 'draft' : 'imported';
+      const dataStatus = (itemCount < 5 || incomeItemCount === 0) ? 'draft' : 'imported';
 
       let yearId: string;
       if (existing) {
@@ -366,10 +434,17 @@ Deno.serve(async (req) => {
             raw_value: val, normalized_value: val,
             source_label: mapping.labels[0], source_type: sourceType as any,
             confidence_score: 0.85,
-            unit: normalizedKey === 'shares_outstanding' ? 'shares' : (normalizedKey.startsWith('eps') || normalizedKey === 'book_value_per_share' ? 'USD/share' : 'USD'),
+            unit: normalizedKey === 'shares_outstanding' ? 'shares' : (normalizedKey.startsWith('eps') || normalizedKey === 'book_value_per_share' ? `${scrapedCurrency || 'USD'}/share` : (scrapedCurrency || 'USD')),
           }, { onConflict: 'statement_year_id,normalized_key' });
         }
       }
+    }
+
+    // If the income page scraped ok but none of the processed years yielded any income-statement
+    // value, the table layout likely didn't match our labels — surface it instead of leaving the
+    // user with a silently "imported" Income Statement full of zeros.
+    if (!incomeItemsFoundAcrossYears && (importedYears.length + updatedYears.length) > 0 && !failedPages.includes('income')) {
+      warnings.push('Não foi possível extrair dados do Income Statement (Revenue, Lucro, EPS, etc.) para nenhum dos anos processados — a estrutura da página pode ter mudado. Os restantes dados (Balanço, Cash Flow) foram importados normalmente.');
     }
 
     // Detect missing years
@@ -384,7 +459,7 @@ Deno.serve(async (req) => {
     if (job) {
       await supabase.from('import_jobs').update({
         status: 'completed' as any, finished_at: new Date().toISOString(),
-        years_imported: allProcessed, log_summary: logs.join('; '),
+        years_imported: allProcessed, log_summary: [...logs, ...warnings].join('; '),
       }).eq('id', job.id);
     }
 
@@ -394,7 +469,7 @@ Deno.serve(async (req) => {
       success: true, company_id: companyId, ticker: effectiveTicker,
       years_imported: importedYears.sort(), years_updated: updatedYears.sort(),
       years_skipped: skippedYears.sort(), years_available: years,
-      missing_years: missingYears, logs, source: sourceType,
+      missing_years: missingYears, logs, warnings, source: sourceType,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {

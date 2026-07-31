@@ -34,6 +34,31 @@ O utilizador introduz o ticker da empresa e a aplicação deve conseguir:
 
 ---
 
+## Autenticação e gestão de utilizadores
+
+A aplicação tem acesso restrito: requer login para todas as páginas.
+
+* autenticação feita via Supabase Auth (email + password);
+* sem registo público — só administradores criam novas contas;
+* dois tipos de acesso: `admin` e `user`;
+* `admin`: acesso total, incluindo gestão de utilizadores;
+* `user`: acesso a todas as funcionalidades, exceto gestão de utilizadores;
+* novas contas são criadas com password temporária e flag `must_change_password`;
+* no primeiro login, o utilizador é obrigado a definir uma password nova antes de continuar;
+* qualquer rota não autenticada deve redirecionar para `/login`;
+* deve existir botão de terminar sessão sempre visível.
+
+### Gestão de utilizadores (admin)
+
+Página exclusiva para administradores, com:
+
+* listagem de utilizadores (email, tipo de acesso, data de criação);
+* criar utilizador (email + password temporária + tipo de acesso);
+* remover utilizador, com confirmação;
+* um administrador não pode remover a própria conta.
+
+---
+
 ## Fontes de dados
 
 ### Empresas dos EUA
@@ -233,6 +258,13 @@ O utilizador deve poder escolher o método, mas o Free Cash Flow deve ser o padr
 * IRR esperado, quando aplicável;
 * classificação automática.
 
+### Persistência do valuation
+
+* os inputs e o resultado do DCF ficam guardados por empresa (1 valuation ativa por ticker);
+* ao reabrir a empresa, o valuation guardado é carregado automaticamente, sem necessidade de recalcular;
+* guardar também o preço da ação no momento do cálculo;
+* recalcular e atualizar o valuation guardado sempre que o utilizador alterar inputs ou recalcular.
+
 ---
 
 ## Preço atual da ação
@@ -271,6 +303,31 @@ O badge de decisão deve ter efeito visual tipo "sinal de vida":
 * vermelho para Aguardar / Sobrevalorizado;
 * azul ou cinza para Sem dados;
 * animação subtil com glow ou pulso leve.
+
+---
+
+## Alertas de preço
+
+A aplicação deve permitir alertas de preço por email, por empresa.
+
+### Alertas automáticos
+
+* criados automaticamente para cada empresa analisada, um por classificação (Investir, Atento, Aguardar);
+* o utilizador pode ativar/desativar cada alerta automático;
+* quando ativo, dispara um email sempre que a classificação da empresa mudar (ex.: Aguardar → Atento).
+
+### Alertas manuais
+
+* o utilizador define um preço-alvo e a direção (acima/abaixo);
+* dispara um email quando o preço atual cruzar o preço-alvo;
+* após disparar, o alerta fica marcado como acionado (`triggered`);
+* eliminar alerta manual.
+
+### Execução
+
+* verificação periódica (de hora a hora) do preço atual de todas as empresas com alertas ativos;
+* comparação com o estado anterior para detetar mudança de classificação ou cruzamento de preço-alvo;
+* envio de email com o resumo do alerta (empresa, preço atual, valor intrínseco, classificação).
 
 ---
 
@@ -317,34 +374,82 @@ Cada empresa deve ter uma página de relatório com:
   * Carregar dados via link Stock Analysis;
   * Reimportar tudo, se existir, apenas como ação explícita.
 
+### Documentos anexados
+
+A página da empresa deve permitir anexar relatórios/documentos próprios (PDF ou DOCX):
+
+* upload de ficheiro, associado a um ano e, opcionalmente, mês/data de referência;
+* título do relatório;
+* ficheiros DOCX devem ser convertidos para HTML para leitura direta na aplicação;
+* listagem dos documentos por empresa, ordenada por período;
+* eliminar documento, com remoção do ficheiro e do registo;
+* acesso ao ficheiro original através de link temporário (signed URL).
+
 ---
 
 ## Portfolio
 
-A aplicação deve permitir criar e gerir carteira de investimentos.
+A aplicação deve permitir criar e gerir carteira de investimentos, com suporte a múltiplos brokers e múltiplos membros/donos da carteira.
 
-Campos de posição:
+A posição de cada ticker é calculada a partir do histórico de transações e dividendos, e não guardada como valor fixo.
 
-* empresa;
-* ticker;
-* data de compra;
-* preço de compra;
-* número de ações;
-* carteira;
-* valor investido;
-* preço atual;
-* valor atual;
-* rentabilidade em valor;
-* rentabilidade em percentagem.
+### Transações (compra/venda)
 
-Funcionalidades:
+Campos:
 
-* adicionar posição;
-* editar posição;
-* eliminar posição com ícone de caixote do lixo;
-* recalcular totais após alterações;
-* mostrar total da carteira;
-* mostrar rentabilidade agregada.
+* ticker / empresa;
+* tipo: compra ou venda;
+* data;
+* preço por ação;
+* quantidade;
+* moeda (EUR / USD);
+* comissões (fees);
+* broker;
+* notas.
+
+### Dividendos
+
+Campos:
+
+* ticker / empresa;
+* data;
+* valor por ação;
+* quantidade;
+* moeda;
+* broker;
+* notas.
+
+### Cálculo de posições
+
+Para cada ticker, a aplicação deve calcular:
+
+* quantidade atual (compras − vendas);
+* preço médio de compra (WAC — weighted average cost);
+* valor investido e valor atual, convertidos para EUR;
+* retorno de ações: realizado (vendas) + não realizado (posição em carteira);
+* retorno de dividendos, separado do retorno de ações;
+* retorno total (ações + dividendos), em valor e em percentagem.
+
+### Membros e brokers
+
+* a carteira é partilhada por membros pré-definidos (ex.: V&J, Dinis, Mariana);
+* cada movimento de liquidez pode ser repartido entre membros, por valor e percentagem;
+* cada transação/dividendo/movimento de liquidez está associado a um broker (ex.: IBKR).
+
+### Liquidez (cash)
+
+Registo de movimentos de liquidez por broker:
+
+* tipos: depósito, levantamento, dividendo, compra, venda;
+* valor (positivo = entrada, negativo = saída);
+* moeda (EUR / USD);
+* repartição por membro.
+
+### Funcionalidades
+
+* adicionar/eliminar transação, dividendo e movimento de liquidez, com confirmação;
+* recalcular totais e rentabilidades após qualquer alteração;
+* mostrar total da carteira e rentabilidade agregada, com decomposição por ticker, por broker e por membro.
 
 ---
 
@@ -432,23 +537,6 @@ Funcionalidades:
 * created_at
 * updated_at
 
-### PortfolioPosition
-
-* id
-* company_id
-* ticker
-* purchase_date
-* purchase_price
-* quantity
-* portfolio_name
-* current_price
-* current_value
-* invested_value
-* return_value
-* return_percentage
-* created_at
-* updated_at
-
 ### WishlistItem
 
 * id
@@ -458,6 +546,103 @@ Funcionalidades:
 * status
 * created_at
 * updated_at
+
+### PriceAlert
+
+* id
+* ticker
+* company_id
+* company_name
+* alert_type: above / below (nulo para alertas automáticos)
+* target_price (nulo para alertas automáticos)
+* currency
+* alert_category: manual / auto_invest / auto_atento / auto_aguardar
+* is_active
+* triggered
+* triggered_at
+* created_at
+* updated_at
+
+### DCFValuation
+
+* ticker (chave única)
+* company_id
+* method
+* inputs (JSON)
+* result (JSON)
+* price_at_calculation
+* calculated_at
+* updated_at
+
+### CompanyReport
+
+* id
+* ticker
+* company_id
+* period_year
+* period_month
+* report_date
+* title
+* content_html
+* file_path
+* file_type
+* created_at
+* updated_at
+
+### PortfolioTransaction (substitui PortfolioPosition)
+
+* id
+* ticker
+* company_id
+* type: buy / sell
+* date
+* price_per_share
+* quantity
+* currency
+* fees
+* broker
+* notes
+* created_at
+
+### PortfolioDividend
+
+* id
+* ticker
+* company_id
+* date
+* amount_per_share
+* quantity
+* currency
+* broker
+* notes
+* created_at
+
+### PortfolioMember
+
+* id
+* name
+* created_at
+
+### PortfolioCash
+
+* id
+* date
+* type: deposit / withdrawal / dividend / buy / sell
+* ticker
+* amount (positivo = entrada, negativo = saída)
+* currency
+* broker
+* notes
+* created_at
+* updated_at
+
+### PortfolioCashMember
+
+* id
+* cash_id
+* member_id
+* amount
+* percentage
 
 ---
 
@@ -470,4 +655,7 @@ Funcionalidades:
 * O preço atual da ação deve ser online.
 * Valuation não pode apresentar `Infinity%`, `NaN` ou preço `0.00` falso.
 * Eliminações devem pedir confirmação.
+* Acesso à aplicação requer autenticação; não deve haver registo público.
+* Apenas administradores podem criar ou remover utilizadores.
+* Alertas de preço (manuais e automáticos) devem ser verificados periodicamente e disparar email.
 * Não recriar a aplicação de raiz quando forem pedidas melhorias: alterar apenas os módulos necessários.

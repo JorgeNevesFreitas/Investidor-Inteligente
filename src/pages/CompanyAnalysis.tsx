@@ -254,6 +254,17 @@ export default function CompanyAnalysis() {
           const u = result.years_updated?.length || 0;
           const s = result.years_skipped?.length || 0;
           toast({ title: "Atualização concluída", description: `${n} novos · ${u} atualizados · ${s} sem alterações` });
+          if (result.warnings?.length) {
+            toast({ title: "Dados possivelmente incompletos", description: result.warnings.join(" "), variant: "destructive" });
+          }
+        } else if (result.suggest_alternative_source === 'stockanalysis' && src === 'sec') {
+          setSelectedSource('stockanalysis');
+          setShowImportModal(true);
+          toast({
+            title: "SEC sem dados compatíveis",
+            description: `${result.error} A fonte foi alterada para StockAnalysis — confirma novamente para importar.`,
+            variant: "destructive",
+          });
         } else {
           toast({ title: "Erro na importação", description: result.error || "Falha", variant: "destructive" });
         }
@@ -268,7 +279,18 @@ export default function CompanyAnalysis() {
         setLastImportResult(result);
         if (result.success) {
           toast({ title: `Ano ${year} importado`, description: result.logs?.join("; ") || "Sucesso" });
+          if (result.warnings?.length) {
+            toast({ title: "Dados possivelmente incompletos", description: result.warnings.join(" "), variant: "destructive" });
+          }
           setSpecificYear("");
+        } else if (result.suggest_alternative_source === 'stockanalysis' && src === 'sec') {
+          setSelectedSource('stockanalysis');
+          setShowImportModal(true);
+          toast({
+            title: "SEC sem dados compatíveis",
+            description: `${result.error} A fonte foi alterada para StockAnalysis — confirma novamente para importar.`,
+            variant: "destructive",
+          });
         } else {
           toast({ title: "Erro", description: result.error || "Falha na importação", variant: "destructive" });
         }
