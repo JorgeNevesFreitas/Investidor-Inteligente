@@ -4,7 +4,8 @@ import { MOCK_COMPANIES } from "@/lib/mockData";
 import { DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AppLayout } from "@/components/AppLayout";
-import { TrendingUp, TrendingDown, Trash2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Trash2, StickyNote } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { listCompanies, DBCompany } from "@/lib/financialDataService";
 import { fetchLatestReportsByTicker, ReportSummary } from "@/lib/reportService";
 import { deleteCompany } from "@/lib/companyDeleteService";
@@ -168,6 +169,7 @@ export default function Dashboard() {
         dbCompany: c,
         isDB: true,
         quoteLoading: !q,
+        notes: c.notes ?? null,
       };
     }),
     ...MOCK_COMPANIES.filter(c => !dbTickers.has(c.ticker)).map(c => {
@@ -186,6 +188,7 @@ export default function Dashboard() {
         dbCompany: null as DBCompany | null,
         isDB: false,
         quoteLoading: !q,
+        notes: null as string | null,
       };
     }),
   ];
@@ -268,8 +271,9 @@ export default function Dashboard() {
                   { h: "C/ Margem",        mobile: false },
                   { h: "IRR",              mobile: true },
                   { h: "",                 mobile: true },
-                ].map(({ h, mobile }) => (
-                  <th key={h} className={`px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap${mobile ? "" : " hidden sm:table-cell"}`}>{h}</th>
+                  { h: "",                 mobile: true },
+                ].map(({ h, mobile }, i) => (
+                  <th key={i} className={`px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap${mobile ? "" : " hidden sm:table-cell"}`}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -330,6 +334,18 @@ export default function Dashboard() {
                         {safeFormatPercent(a.result.irr)}
                       </span>
                     ) : <span className="text-xs text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {a.notes?.trim() && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <StickyNote className="h-3.5 w-3.5 text-neutral-warn shrink-0 cursor-default" />
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="max-w-xs whitespace-pre-wrap text-xs">
+                          {a.notes.slice(0, 240)}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
                     {a.dbCompany && (

@@ -75,6 +75,8 @@ export type Database = {
           last_refreshed_at: string | null
           market_cap: number | null
           name: string
+          notes: string | null
+          notes_updated_at: string | null
           pe_ratio: number | null
           primary_data_source: string | null
           region_type: Database["public"]["Enums"]["region_type"]
@@ -97,6 +99,8 @@ export type Database = {
           last_refreshed_at?: string | null
           market_cap?: number | null
           name: string
+          notes?: string | null
+          notes_updated_at?: string | null
           pe_ratio?: number | null
           primary_data_source?: string | null
           region_type?: Database["public"]["Enums"]["region_type"]
@@ -119,6 +123,8 @@ export type Database = {
           last_refreshed_at?: string | null
           market_cap?: number | null
           name?: string
+          notes?: string | null
+          notes_updated_at?: string | null
           pe_ratio?: number | null
           primary_data_source?: string | null
           region_type?: Database["public"]["Enums"]["region_type"]

@@ -21,6 +21,8 @@ export interface DBCompany {
   fiscal_year_end_month: number | null;
   last_imported_at: string | null;
   last_refreshed_at: string | null;
+  notes: string | null;
+  notes_updated_at: string | null;
 }
 
 export interface DBFinancialYear {
@@ -305,4 +307,11 @@ export async function listCompanies(): Promise<DBCompany[]> {
   if (!response.ok) return [];
   const result = await response.json();
   return result.companies || [];
+}
+
+export async function updateCompanyNotes(companyId: string, notes: string): Promise<{ notes_updated_at: string }> {
+  const notes_updated_at = new Date().toISOString();
+  const { error } = await supabase.from('companies').update({ notes, notes_updated_at }).eq('id', companyId);
+  if (error) throw error;
+  return { notes_updated_at };
 }

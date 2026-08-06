@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { MOCK_COMPANIES, FinancialYear, Company } from "@/lib/mockData";
 import { AppLayout } from "@/components/AppLayout";
@@ -13,7 +13,7 @@ import {
   ArrowLeft, ExternalLink, RefreshCw, Link2, Loader2,
   Database, Clock, AlertCircle, CheckCircle2, Calendar,
   AlertTriangle, Pencil, X, Upload, FileText, Trash2,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, StickyNote,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchMarketPrice, MarketPriceResult } from "@/lib/marketPriceService";
@@ -23,6 +23,7 @@ import {
   importFromStockAnalysis,
   dbFinancialsToFinancialYears,
   dbToCompany,
+  updateCompanyNotes,
   DBCompany,
   ImportResult,
 } from "@/lib/financialDataService";
@@ -127,6 +128,12 @@ export default function CompanyAnalysis() {
   const [uploading, setUploading] = useState(false);
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
 
+  // Notes
+  const [notes, setNotes] = useState("");
+  const [notesUpdatedAt, setNotesUpdatedAt] = useState<string | null>(null);
+  const [notesSaving, setNotesSaving] = useState(false);
+  const notesSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const mockCompany = MOCK_COMPANIES.find(c => c.ticker === ticker);
 
   // Load IR URL from localStorage
@@ -162,6 +169,8 @@ export default function CompanyAnalysis() {
         setDbCompany(data.company);
         setLastImported(data.company.last_imported_at);
         setDataSource(data.company.primary_data_source);
+        setNotes(data.company.notes || "");
+        setNotesUpdatedAt(data.company.notes_updated_at || null);
       }
       if (data.financials?.length > 0) {
         setDbFinancials(dbFinancialsToFinancialYears(data.financials));
@@ -193,6 +202,43 @@ export default function CompanyAnalysis() {
     loadMarketPrice();
     loadReports();
   }, [loadPersistedData, loadMarketPrice, loadReports]);
+
+  // Discard any pending debounced notes save when navigating to a different company
+  useEffect(() => {
+    return () => {
+      if (notesSaveTimeout.current) {
+        clearTimeout(notesSaveTimeout.current);
+        notesSaveTimeout.current = null;
+      }
+    };
+  }, [ticker]);
+
+  const saveNotes = useCallback(async (value: string) => {
+    if (!dbCompany?.id) return;
+    setNotesSaving(true);
+    try {
+      const { notes_updated_at } = await updateCompanyNotes(dbCompany.id, value);
+      setNotesUpdatedAt(notes_updated_at);
+    } catch (err) {
+      console.error("Failed to save notes:", err);
+    } finally {
+      setNotesSaving(false);
+    }
+  }, [dbCompany?.id]);
+
+  const handleNotesChange = (value: string) => {
+    setNotes(value);
+    if (notesSaveTimeout.current) clearTimeout(notesSaveTimeout.current);
+    notesSaveTimeout.current = setTimeout(() => saveNotes(value), 1500);
+  };
+
+  const handleSaveNotesNow = () => {
+    if (notesSaveTimeout.current) {
+      clearTimeout(notesSaveTimeout.current);
+      notesSaveTimeout.current = null;
+    }
+    saveNotes(notes);
+  };
 
   // Derived
   const isUS = isUSCompany(dbCompany, mockCompany);
@@ -648,7 +694,7 @@ export default function CompanyAnalysis() {
         {displayedFinancials.length > 0 && company && (
           <Tabs defaultValue="financials" className="w-full">
             <TabsList className="bg-secondary border border-border overflow-x-auto flex-nowrap justify-start gap-1 p-1 h-auto">
-              {["valuation", "relatorios", "financials", "ratios", "charts", "income", "balance", "cashflow"].map(tab => (
+              {["valuation", "relatorios", "financials", "ratios", "charts", "income", "balance", "cashflow", "notas"].map(tab => (
                 <TabsTrigger key={tab} value={tab} className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground capitalize shrink-0 whitespace-nowrap">
                   {tab === "financials" ? "Financials"
                     : tab === "income" ? "Income Statement"
@@ -657,6 +703,7 @@ export default function CompanyAnalysis() {
                     : tab === "ratios" ? "Rácios"
                     : tab === "charts" ? "Gráficos"
                     : tab === "valuation" ? "Valuation"
+                    : tab === "notas" ? "Notas"
                     : "Relatórios"}
                 </TabsTrigger>
               ))}
@@ -791,6 +838,39 @@ export default function CompanyAnalysis() {
                 )}
               </div>
             </TabsContent>
+
+            {dbCompany?.id && (
+              <TabsContent value="notas" className="mt-4">
+                <div className="rounded-lg border border-border bg-card overflow-hidden p-3">
+                  <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <StickyNote className="h-3.5 w-3.5" />
+                      <span>Notas</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {notesSaving ? (
+                        <span className="text-[11px] text-muted-foreground animate-pulse">A guardar...</span>
+                      ) : notesUpdatedAt ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                          <Clock className="h-3 w-3" />
+                          Última atualização: {new Date(notesUpdatedAt).toLocaleDateString("pt-PT", { month: "2-digit", year: "numeric" })}
+                        </span>
+                      ) : null}
+                      <Button variant="outline" size="sm" className="h-6 text-[11px] px-2" onClick={handleSaveNotesNow} disabled={notesSaving}>
+                        Guardar
+                      </Button>
+                    </div>
+                  </div>
+                  <textarea
+                    value={notes}
+                    onChange={e => handleNotesChange(e.target.value)}
+                    placeholder="Escreve notas livres sobre esta empresa..."
+                    rows={6}
+                    className="w-full min-h-[140px] text-xs text-foreground bg-transparent border border-border/50 rounded-md p-2 outline-none focus:border-primary/40 resize-y placeholder:text-muted-foreground/50"
+                  />
+                </div>
+              </TabsContent>
+            )}
           </Tabs>
         )}
       </div>

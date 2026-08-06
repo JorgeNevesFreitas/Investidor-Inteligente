@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Plus, ChevronRight, ChevronDown, Trash2, RefreshCw, Loader2, Wallet,
+  Plus, ChevronRight, ChevronDown, Trash2, RefreshCw, Loader2, Wallet, StickyNote,
 } from "lucide-react";
 import {
   PortfolioTransaction, PortfolioDividend, Position,
@@ -278,6 +278,12 @@ export default function Portfolio() {
   const companyNames = useMemo(() => {
     const m = new Map<string, string>();
     for (const c of companies) m.set(c.ticker.toUpperCase(), c.name);
+    return m;
+  }, [companies]);
+
+  const companyNotesMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of companies) if (c.notes?.trim()) m.set(c.ticker.toUpperCase(), c.notes);
     return m;
   }, [companies]);
 
@@ -1150,8 +1156,23 @@ export default function Portfolio() {
                               : <ChevronRight className="h-3.5 w-3.5 mx-auto" />}
                           </td>
                           <td className="px-3 py-2.5">
-                            <div className="text-xs font-medium text-foreground leading-tight">
-                              {pos.company_name || pos.ticker}
+                            <div className="flex items-center gap-1.5">
+                              {companyNotesMap.has(pos.ticker.toUpperCase()) && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <StickyNote
+                                      className="h-3.5 w-3.5 text-neutral-warn shrink-0 cursor-default"
+                                      onClick={e => e.stopPropagation()}
+                                    />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs whitespace-pre-wrap text-xs">
+                                    {companyNotesMap.get(pos.ticker.toUpperCase())!.slice(0, 240)}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              <div className="text-xs font-medium text-foreground leading-tight">
+                                {pos.company_name || pos.ticker}
+                              </div>
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <span className="font-mono text-[11px] text-primary">{pos.ticker}</span>

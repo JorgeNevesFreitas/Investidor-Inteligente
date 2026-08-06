@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     if (action === 'list') {
       const { data: companies, error: listErr } = await supabase
         .from('companies')
-        .select('id, ticker, name, exchange, sector, currency, region_type, current_price, market_cap, pe_ratio, last_imported_at, last_refreshed_at, primary_data_source, fiscal_year_end_month')
+        .select('id, ticker, name, exchange, sector, currency, region_type, current_price, market_cap, pe_ratio, last_imported_at, last_refreshed_at, primary_data_source, fiscal_year_end_month, notes, notes_updated_at')
         .order('updated_at', { ascending: false });
 
       // Graceful fallback if fiscal_year_end_month column doesn't exist yet (migration pending)
