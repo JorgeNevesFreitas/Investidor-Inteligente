@@ -347,7 +347,8 @@ Deve mostrar:
 * principais rácios;
 * data da última atualização;
 * botão para abrir análise;
-* opção de eliminar empresa com ícone de caixote do lixo.
+* opção de eliminar empresa com ícone de caixote do lixo;
+* indicador discreto (ícone âmbar), em coluna própria e fixa, quando a empresa tem notas escritas — em hover mostra o início das notas.
 
 A eliminação deve pedir confirmação antes de apagar.
 
@@ -384,6 +385,15 @@ A página da empresa deve permitir anexar relatórios/documentos próprios (PDF 
 * listagem dos documentos por empresa, ordenada por período;
 * eliminar documento, com remoção do ficheiro e do registo;
 * acesso ao ficheiro original através de link temporário (signed URL).
+
+### Notas por empresa
+
+Cada empresa tem um separador "Notas" (na barra de tabs, depois de "Cash Flow") para texto livre:
+
+* campo de texto (textarea) sem formatação;
+* guardado automaticamente 1,5s após o utilizador parar de escrever, ou de imediato através do botão "Guardar";
+* mostra a data da última atualização das notas, no formato mm/aaaa;
+* as notas ficam persistidas na tabela `companies` (campo `notes`), por empresa.
 
 ---
 
@@ -449,7 +459,8 @@ Registo de movimentos de liquidez por broker:
 
 * adicionar/eliminar transação, dividendo e movimento de liquidez, com confirmação;
 * recalcular totais e rentabilidades após qualquer alteração;
-* mostrar total da carteira e rentabilidade agregada, com decomposição por ticker, por broker e por membro.
+* mostrar total da carteira e rentabilidade agregada, com decomposição por ticker, por broker e por membro;
+* indicador discreto (ícone âmbar) junto ao nome da empresa, nas posições com notas escritas — em hover mostra o início das notas.
 
 ---
 
@@ -479,6 +490,8 @@ Funcionalidades:
 * cik
 * stockanalysis_url
 * primary_data_source
+* notes
+* notes_updated_at
 * created_at
 * updated_at
 * last_imported_at
