@@ -1,5 +1,6 @@
 import { FinancialYear } from "@/lib/mockData";
 import { formatPercent, getChangeColor } from "@/lib/calculations";
+import { computeOwnerEarningsSeries, isSignificantDivergence } from "@/lib/calculationsBuffett";
 
 type SectionKey = "performance" | "profitability" | "structure" | "incomeStatement" | "balanceSheet" | "cashFlow";
 
@@ -99,6 +100,9 @@ export function FinancialTable({ data, section }: FinancialTableProps) {
   const rows = sections[section];
   const sortedData = [...data].sort((a, b) => a.year - b.year);
 
+  const ownerEarningsSeries = (section === "cashFlow" || section === "performance") ? computeOwnerEarningsSeries(sortedData) : [];
+  const ownerEarningsByYear = new Map(ownerEarningsSeries.map(o => [o.year, o]));
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -147,6 +151,44 @@ export function FinancialTable({ data, section }: FinancialTableProps) {
               })}
             </tr>
           ))}
+          {(section === "cashFlow" || section === "performance") && (
+            <>
+              <tr className="border-b border-border/50 hover:bg-accent/30 transition-colors">
+                <td className="sticky left-0 bg-card px-3 py-2 text-xs font-medium text-foreground whitespace-nowrap">
+                  Owner Earnings ($M)
+                </td>
+                {sortedData.map(d => {
+                  const oe = ownerEarningsByYear.get(d.year);
+                  const diverges = oe && !oe.isApproximated && isSignificantDivergence(oe.ownerEarnings, d.fcf);
+                  return (
+                    <td key={d.year} className="px-3 py-2 text-right font-mono text-xs">
+                      {oe ? (
+                        <>
+                          {fmtNum(oe.ownerEarnings)}
+                          {oe.isApproximated && <span className="ml-1 text-[10px] text-muted-foreground" title="Dados incompletos, aproximado pelo FCF">≈</span>}
+                          {diverges && <span className="ml-1 text-[10px] text-neutral-warn" title={`Diverge muito do FCF reportado (${fmtNum(d.fcf)}). Verifica os dados deste ano ou considera usar o FCF.`}>⚠️</span>}
+                        </>
+                      ) : "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+              <tr className="border-b border-border/50 hover:bg-accent/30 transition-colors">
+                <td className="sticky left-0 bg-card px-3 py-2 text-xs font-medium text-foreground whitespace-nowrap">
+                  Owner Earnings Growth
+                </td>
+                {sortedData.map(d => {
+                  const oe = ownerEarningsByYear.get(d.year);
+                  const colorClass = oe ? getChangeColor(oe.ownerEarningsGrowth) : "";
+                  return (
+                    <td key={d.year} className={`px-3 py-2 text-right font-mono text-xs ${colorClass}`}>
+                      {oe ? formatPercent(oe.ownerEarningsGrowth) : "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            </>
+          )}
         </tbody>
       </table>
     </div>

@@ -1,5 +1,9 @@
 export interface FinancialYear {
   year: number;
+  depreciationAmortization?: number;
+  capex?: number;
+  currentAssets?: number;
+  currentLiabilities?: number;
   revenue: number;
   revenueGrowth: number | null;
   grossProfit: number;

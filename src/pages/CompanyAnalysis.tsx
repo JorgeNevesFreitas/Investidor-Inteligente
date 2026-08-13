@@ -37,6 +37,7 @@ import {
 } from "@/lib/reportService";
 import { PriceAlerts } from "@/components/PriceAlerts";
 import { ValuationSC } from "@/components/ValuationSC";
+import { ValuationBuffett } from "@/components/ValuationBuffett";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -695,7 +696,7 @@ export default function CompanyAnalysis() {
         {displayedFinancials.length > 0 && company && (
           <Tabs defaultValue="financials" className="w-full">
             <TabsList className="bg-secondary border border-border overflow-x-auto flex-nowrap justify-start gap-1 p-1 h-auto">
-              {["valuation", "valuation-sc", "relatorios", "financials", "ratios", "charts", "income", "balance", "cashflow", "notas"].map(tab => (
+              {["valuation", "valuation-sc", "valuation-buffett", "relatorios", "financials", "ratios", "charts", "income", "balance", "cashflow", "notas"].map(tab => (
                 <TabsTrigger key={tab} value={tab} className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground capitalize shrink-0 whitespace-nowrap">
                   {tab === "financials" ? "Financials"
                     : tab === "income" ? "Income Statement"
@@ -705,6 +706,7 @@ export default function CompanyAnalysis() {
                     : tab === "charts" ? "Gráficos"
                     : tab === "valuation" ? "Valuation"
                     : tab === "valuation-sc" ? "Valuation SC"
+                    : tab === "valuation-buffett" ? "Valuation Buffett"
                     : tab === "notas" ? "Notas"
                     : "Relatórios"}
                 </TabsTrigger>
@@ -776,6 +778,15 @@ export default function CompanyAnalysis() {
                 company={company}
                 marketPrice={marketPrice?.price || null}
                 priceStatus={marketPrice?.status || 'loading'}
+              />
+            </TabsContent>
+
+            <TabsContent value="valuation-buffett" className="mt-4">
+              <ValuationBuffett
+                company={company}
+                marketPrice={marketPrice?.price || null}
+                priceStatus={marketPrice?.status || 'loading'}
+                priceTimestamp={marketPrice?.timestamp || null}
               />
             </TabsContent>
 
