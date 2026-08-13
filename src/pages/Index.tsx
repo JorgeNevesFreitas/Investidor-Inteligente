@@ -134,10 +134,14 @@ export default function Dashboard() {
   }
 
   const getResult = (ticker: string): DCFResult | null => {
+    try {
+      const savedSC = localStorage.getItem(`sc-result-${ticker}`);
+      if (savedSC) return JSON.parse(savedSC);
+    } catch {}
     if (dcfMap.has(ticker)) return dcfMap.get(ticker)!;
     try {
-      const saved = localStorage.getItem(`dcf-result-${ticker}`);
-      if (saved) return JSON.parse(saved);
+      const savedDCF = localStorage.getItem(`dcf-result-${ticker}`);
+      if (savedDCF) return JSON.parse(savedDCF);
     } catch {}
     return null;
   };

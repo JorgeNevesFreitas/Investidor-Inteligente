@@ -98,7 +98,7 @@ export function ValuationSC({ company, marketPrice, priceStatus = "success" }: V
 
     return {
       method,
-      dividendPayoutRatio: Number((lastYear.payoutRatio ?? 0).toFixed(2)),
+      dividendPayoutRatio: 100,
       marginOfSafety,
       scenario1: { ...baselineFields, baseValuePerShare: base, probability: SC_DEFAULT_INPUTS.scenario1.probability },
       scenario2: { ...baselineFields, baseValuePerShare: base, probability: SC_DEFAULT_INPUTS.scenario2.probability },
@@ -193,6 +193,21 @@ export function ValuationSC({ company, marketPrice, priceStatus = "success" }: V
     return calculateSvenCarlinValuation(scInputs, company.sharesOutstanding, effectivePrice!);
   }, [allFilled, hasPriceValid, JSON.stringify(scInputs), company.sharesOutstanding, effectivePrice]);
 
+  useEffect(() => {
+    const resultKey = `sc-result-${company.ticker}`;
+    if (result) {
+      localStorage.setItem(resultKey, JSON.stringify({
+        intrinsicValueTotal: result.weightedIntrinsicValueTotal,
+        intrinsicValuePerShare: result.weightedIntrinsicValuePerShare,
+        intrinsicWithMargin: result.weightedWithMargin,
+        currentPrice: result.currentPrice,
+        upside: result.upside,
+        irr: result.impliedDiscountRate,
+        status: result.status,
+      }));
+    }
+  }, [result, company.ticker]);
+
   const badgeStatus = !hasPriceValid ? "no_price" : (result?.status || "no_price");
 
   const renderPriceValue = () => {
@@ -269,7 +284,7 @@ export function ValuationSC({ company, marketPrice, priceStatus = "success" }: V
               placeholder="Ex: 100"
             />
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Pré-preenchido a partir do payout ratio do último ano. 100% = sem efeito no cálculo.
+              Por defeito a 100% (sem efeito no cálculo, igual à aba "Valuation" antiga). Reduzir este valor penaliza o peso dos lucros retidos/não distribuídos, uma lógica mais conservadora nem sempre alinhada com a filosofia de "owner earnings" de Buffett. Muda apenas se quiseres testar esse efeito.
             </p>
           </div>
 
@@ -403,14 +418,6 @@ export function ValuationSC({ company, marketPrice, priceStatus = "success" }: V
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
-              <span className="text-xs text-muted-foreground">Preço atual</span>
-              <span className="font-mono text-sm font-semibold text-foreground">{renderPriceValue()}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
-              <span className="text-xs text-muted-foreground">Taxa de desconto obtida ao preço atual</span>
-              <span className="font-mono text-sm font-semibold text-foreground">{renderImpliedRate()}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
               <span className="text-xs text-muted-foreground">Valor intrínseco por ação</span>
               <span className="font-mono text-sm font-semibold text-foreground">
                 {result ? formatCurrency(result.weightedIntrinsicValuePerShare) : "N/D"}
@@ -431,6 +438,14 @@ export function ValuationSC({ company, marketPrice, priceStatus = "success" }: V
             <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
               <span className="text-xs text-muted-foreground">Upside</span>
               <span className="font-mono text-sm font-semibold">{renderUpside()}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
+              <span className="text-xs text-muted-foreground">Preço atual</span>
+              <span className="font-mono text-sm font-semibold text-foreground">{renderPriceValue()}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
+              <span className="text-xs text-muted-foreground">Taxa de desconto obtida ao preço atual</span>
+              <span className="font-mono text-sm font-semibold text-foreground">{renderImpliedRate()}</span>
             </div>
           </div>
         </div>
