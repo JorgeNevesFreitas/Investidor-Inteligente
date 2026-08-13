@@ -4,7 +4,6 @@ import { MOCK_COMPANIES, FinancialYear, Company } from "@/lib/mockData";
 import { AppLayout } from "@/components/AppLayout";
 import { FinancialTable } from "@/components/FinancialTable";
 import { MetricsChart } from "@/components/MetricsChart";
-import { DCFCalculator } from "@/components/DCFCalculator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -696,7 +695,7 @@ export default function CompanyAnalysis() {
         {displayedFinancials.length > 0 && company && (
           <Tabs defaultValue="financials" className="w-full">
             <TabsList className="bg-secondary border border-border overflow-x-auto flex-nowrap justify-start gap-1 p-1 h-auto">
-              {["valuation", "valuation-sc", "valuation-buffett", "relatorios", "financials", "ratios", "charts", "income", "balance", "cashflow", "notas"].map(tab => (
+              {["valuation-buffett", "relatorios", "financials", "ratios", "charts", "income", "balance", "cashflow", "notas", "valuation-sc"].map(tab => (
                 <TabsTrigger key={tab} value={tab} className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground capitalize shrink-0 whitespace-nowrap">
                   {tab === "financials" ? "Financials"
                     : tab === "income" ? "Income Statement"
@@ -704,8 +703,7 @@ export default function CompanyAnalysis() {
                     : tab === "cashflow" ? "Cash Flow"
                     : tab === "ratios" ? "Rácios"
                     : tab === "charts" ? "Gráficos"
-                    : tab === "valuation" ? "Valuation"
-                    : tab === "valuation-sc" ? "Valuation SC"
+                    : tab === "valuation-sc" ? "Valuation SC (arquivo)"
                     : tab === "valuation-buffett" ? "Valuation Buffett"
                     : tab === "notas" ? "Notas"
                     : "Relatórios"}
@@ -761,24 +759,6 @@ export default function CompanyAnalysis() {
                 <MetricsChart data={displayedFinancials} dataKey="grossMargin" label="Gross Margin (%)"    color="hsl(280, 60%, 55%)" formatValue={v => `${v.toFixed(0)}%`} />
                 <MetricsChart data={displayedFinancials} dataKey="roe"         label="ROE (%)"             color="hsl(0, 72%, 51%)"   formatValue={v => `${v.toFixed(0)}%`} />
               </div>
-            </TabsContent>
-
-            <TabsContent value="valuation" className="mt-4">
-              <DCFCalculator
-                company={company}
-                companyId={dbCompany?.id ?? null}
-                marketPrice={marketPrice?.price || null}
-                priceStatus={marketPrice?.status || "loading"}
-                priceTimestamp={marketPrice?.timestamp || null}
-              />
-            </TabsContent>
-
-            <TabsContent value="valuation-sc" className="mt-4">
-              <ValuationSC
-                company={company}
-                marketPrice={marketPrice?.price || null}
-                priceStatus={marketPrice?.status || 'loading'}
-              />
             </TabsContent>
 
             <TabsContent value="valuation-buffett" className="mt-4">
@@ -892,6 +872,14 @@ export default function CompanyAnalysis() {
                 </div>
               </TabsContent>
             )}
+
+            <TabsContent value="valuation-sc" className="mt-4">
+              <ValuationSC
+                company={company}
+                marketPrice={marketPrice?.price || null}
+                priceStatus={marketPrice?.status || 'loading'}
+              />
+            </TabsContent>
           </Tabs>
         )}
       </div>

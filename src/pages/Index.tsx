@@ -284,9 +284,9 @@ export default function Dashboard() {
           </button>
         </div>
 
-        <div className="rounded-lg border border-border bg-card overflow-x-auto">
+        <div className="rounded-lg border border-border bg-card overflow-x-auto overflow-y-auto max-h-[70vh]">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-20 bg-card">
               <tr className="border-b border-border">
                 {[
                   { h: "Status",           mobile: true },
@@ -304,7 +304,7 @@ export default function Dashboard() {
                   { h: "",                 mobile: true },
                   { h: "",                 mobile: true },
                 ].map(({ h, mobile }, i) => (
-                  <th key={i} className={`px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap${mobile ? "" : " hidden sm:table-cell"}`}>{h}</th>
+                  <th key={i} className={`px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap bg-card${mobile ? "" : " hidden sm:table-cell"}`}>{h}</th>
                 ))}
               </tr>
             </thead>
