@@ -356,8 +356,8 @@ export default function Dashboard() {
                   <td className="px-3 py-2.5 font-mono text-xs">
                     {a.currentPrice > 0 ? formatCurrency(a.currentPrice, a.currency) : (a.quoteLoading ? <Loading /> : <Dash />)}
                   </td>
-                  <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicValuePerShare) : <Dash />}</td>
-                  <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicWithMargin) : <Dash />}</td>
+                  <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicValuePerShare, a.currency) : <Dash />}</td>
+                  <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-xs">{a.result ? formatCurrency(a.result.intrinsicWithMargin, a.currency) : <Dash />}</td>
                   <td className="px-3 py-2.5">
                     {a.result ? (
                       <span className={`inline-flex items-center gap-1 font-mono text-xs ${a.result.irr >= 0 ? "text-positive" : "text-negative"}`}>
