@@ -105,14 +105,10 @@ export default function Dashboard() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [dbCompanies]); // re-run when companies change
 
-  // TEMPORÁRIO: também devolve a origem do resultado (buffett/sc/dcf/none), para
-  // sinalizar na tabela quais empresas ainda faltam atualizar para o Valuation
-  // Buffett. Remover a etiqueta e simplificar de volta para DCFResult | null
-  // quando deixar de ser necessário.
-  const getResultWithSource = (ticker: string): { result: DCFResult | null; source: 'buffett' | 'sc' | 'dcf' | 'none' } => {
+  const getResult = (ticker: string): DCFResult | null => {
     try {
       const savedBuffettRemote = buffettValuationsRemote[ticker];
-      if (savedBuffettRemote) return { result: savedBuffettRemote, source: 'buffett' };
+      if (savedBuffettRemote) return savedBuffettRemote;
     } catch {}
     try {
       const savedBuffett = localStorage.getItem(`buffett-result-${ticker}`);
@@ -121,19 +117,19 @@ export default function Dashboard() {
         if ((parsed.irr === undefined || parsed.irr === null) && typeof parsed.irrAtCurrentPrice === 'number') {
           parsed.irr = parsed.irrAtCurrentPrice;
         }
-        return { result: parsed, source: 'buffett' };
+        return parsed;
       }
     } catch {}
     try {
       const savedSC = localStorage.getItem(`sc-result-${ticker}`);
-      if (savedSC) return { result: JSON.parse(savedSC), source: 'sc' };
+      if (savedSC) return JSON.parse(savedSC);
     } catch {}
-    if (dcfMap.has(ticker)) return { result: dcfMap.get(ticker)!, source: 'dcf' };
+    if (dcfMap.has(ticker)) return dcfMap.get(ticker)!;
     try {
       const savedDCF = localStorage.getItem(`dcf-result-${ticker}`);
-      if (savedDCF) return { result: JSON.parse(savedDCF), source: 'dcf' };
+      if (savedDCF) return JSON.parse(savedDCF);
     } catch {}
-    return { result: null, source: 'none' };
+    return null;
   };
 
   // Recompute status live from current price vs stored intrinsic values.
@@ -142,7 +138,7 @@ export default function Dashboard() {
   const liveStatuses = useMemo(() => {
     const map = new Map<string, 'invest' | 'watch' | 'wait'>();
     for (const [ticker, price] of livePrice.entries()) {
-      const result = getResultWithSource(ticker).result;
+      const result = getResult(ticker);
       if (!result || price <= 0) continue;
       map.set(ticker, computeLiveStatus(price, result));
     }
@@ -183,7 +179,7 @@ export default function Dashboard() {
     ...dbCompanies.map(c => {
       const q = quoteMap.get(c.ticker);
       const price = livePrice.get(c.ticker) ?? q?.price ?? c.current_price ?? 0;
-      const { result, source } = getResultWithSource(c.ticker);
+      const result = getResult(c.ticker);
       return {
         ticker: c.ticker,
         name: c.name,
@@ -194,7 +190,6 @@ export default function Dashboard() {
         marketCap: q?.marketCap ?? c.market_cap ?? null,
         currentPrice: price,
         result,
-        source,
         dbCompany: c,
         isDB: true,
         quoteLoading: !q,
@@ -204,7 +199,7 @@ export default function Dashboard() {
     ...MOCK_COMPANIES.filter(c => !dbTickers.has(c.ticker)).map(c => {
       const q = quoteMap.get(c.ticker);
       const price = livePrice.get(c.ticker) ?? q?.price ?? c.currentPrice;
-      const { result, source } = getResultWithSource(c.ticker);
+      const result = getResult(c.ticker);
       return {
         ticker: c.ticker,
         name: c.name,
@@ -215,7 +210,6 @@ export default function Dashboard() {
         marketCap: q?.marketCap ?? c.marketCap,
         currentPrice: price,
         result,
-        source,
         dbCompany: null as DBCompany | null,
         isDB: false,
         quoteLoading: !q,
@@ -339,14 +333,6 @@ export default function Dashboard() {
                           {fmtReportPeriod(reportMap.get(a.ticker)!)}
                         </span>
                       )}
-                      {/* TEMPORÁRIO: etiqueta da origem do resultado, remover mais tarde */}
-                      <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                        a.source === 'buffett' ? 'bg-primary/20 text-primary' :
-                        a.source === 'sc' ? 'bg-secondary text-muted-foreground' :
-                        a.source === 'dcf' ? 'bg-destructive/10 text-destructive' : ''
-                      }`}>
-                        {a.source === 'buffett' ? 'Buffett' : a.source === 'sc' ? 'SC' : a.source === 'dcf' ? 'DCF antigo' : ''}
-                      </span>
                     </Link>
                   </td>
                   <td className="hidden sm:table-cell px-3 py-2.5 text-xs text-muted-foreground">
