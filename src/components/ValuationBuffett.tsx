@@ -12,6 +12,7 @@ import { computeOwnerEarnings, calculateBuffettValuation, isSignificantDivergenc
 import { formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "./StatusBadge";
 import { fetchMarketPrice } from "@/lib/marketPriceService";
+import { saveBuffettValuation, getBuffettValuation } from "@/lib/valuationService";
 import { Loader2 } from "lucide-react";
 
 interface ValuationBuffettProps {
@@ -62,6 +63,16 @@ export function ValuationBuffett({ company, marketPrice, priceStatus = "success"
     };
   });
 
+  useEffect(() => {
+    let cancelled = false;
+    getBuffettValuation(company.ticker).then((remote) => {
+      if (!cancelled && remote?.inputs) {
+        setInputs(remote.inputs);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [company.ticker]);
+
   const divergesFromFCF = isSignificantDivergence(Number(inputs.baseOwnerEarnings) || 0, lastYear.fcf);
 
   const [treasuryYield, setTreasuryYield] = useState<number | null>(null);
@@ -106,9 +117,11 @@ export function ValuationBuffett({ company, marketPrice, priceStatus = "success"
   useEffect(() => {
     const resultKey = `buffett-result-${company.ticker}`;
     if (result && !result.invalidRate) {
-      localStorage.setItem(resultKey, JSON.stringify(result));
+      const dcfShapedResult = { ...result, irr: result.irrAtCurrentPrice };
+      localStorage.setItem(resultKey, JSON.stringify(dcfShapedResult));
+      saveBuffettValuation(company.ticker, inputs, dcfShapedResult);
     }
-  }, [result, company.ticker]);
+  }, [result, company.ticker, inputs]);
 
   const badgeStatus = !hasPriceValid ? "no_price" : (result?.status || "no_price");
 
@@ -238,6 +251,12 @@ export function ValuationBuffett({ company, marketPrice, priceStatus = "success"
                 {hasPriceValid ? (effectivePrice! * company.sharesOutstanding).toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/D"}
               </span>
             </div>
+            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
+              <span className="text-xs text-muted-foreground">IRR esperado (ao preço atual)</span>
+              <span className="font-mono text-sm font-semibold text-foreground">
+                {result ? formatPercent(result.irrAtCurrentPrice) : "N/D"}
+              </span>
+            </div>
             {priceTimestamp && hasPriceValid && (
               <div className="px-3 -mt-2">
                 <span className="text-[10px] text-muted-foreground">
@@ -260,12 +279,6 @@ export function ValuationBuffett({ company, marketPrice, priceStatus = "success"
             <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
               <span className="text-xs text-muted-foreground">Upside</span>
               <span className="font-mono text-sm font-semibold">{renderUpside()}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
-              <span className="text-xs text-muted-foreground">IRR esperado (ao preço atual)</span>
-              <span className="font-mono text-sm font-semibold text-foreground">
-                {result ? formatPercent(result.irrAtCurrentPrice) : "N/D"}
-              </span>
             </div>
             <div className="flex items-center justify-between rounded-md px-3 py-2 bg-secondary/50">
               <span className="text-xs text-muted-foreground">IRR esperado (ao preço da VI da MS)</span>

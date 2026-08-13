@@ -154,19 +154,36 @@ export function FinancialTable({ data, section }: FinancialTableProps) {
           {(section === "cashFlow" || section === "performance") && (
             <>
               <tr className="border-b border-border/50 hover:bg-accent/30 transition-colors">
-                <td className="sticky left-0 bg-card px-3 py-2 text-xs font-medium text-foreground whitespace-nowrap">
+                <td
+                  className="sticky left-0 bg-card px-3 py-2 text-xs font-medium text-foreground whitespace-nowrap cursor-help"
+                  title="Owner Earnings = Lucro Líquido + D&A − Capex − ΔWorking Capital. Fórmula de Warren Buffett para o lucro real disponível para o dono do negócio. Quando faltam dados de D&A, Capex ou Working Capital nesse ano, o valor é aproximado pelo FCF reportado (marcado com ≈)."
+                >
                   Owner Earnings ($M)
                 </td>
                 {sortedData.map(d => {
                   const oe = ownerEarningsByYear.get(d.year);
                   const diverges = oe && !oe.isApproximated && isSignificantDivergence(oe.ownerEarnings, d.fcf);
+                  let cellTitle: string | undefined;
+                  if (diverges && oe) {
+                    const terms = [
+                      { label: "D&A", value: oe.depreciationAmortization },
+                      { label: "Capex", value: -oe.capexUsed },
+                      { label: "ΔWorking Capital", value: -oe.deltaWorkingCapital },
+                    ];
+                    const dominant = terms.reduce((a, b) => Math.abs(b.value) > Math.abs(a.value) ? b : a);
+                    cellTitle = `Owner Earnings ${d.year} = Lucro Líquido (${fmtNum(oe.netIncome)}) + D&A (${fmtNum(oe.depreciationAmortization)}) − Capex (${fmtNum(oe.capexUsed)}) − ΔWorking Capital (${fmtNum(oe.deltaWorkingCapital)}) = ${fmtNum(oe.ownerEarnings)}. FCF reportado = ${fmtNum(d.fcf)}. O termo com maior peso este ano é ${dominant.label} (${fmtNum(dominant.value)}), provavelmente o principal responsável pela diferença. Nota: o FCF reportado pode incluir ajustamentos não-caixa (ex: compensação em ações) que não estão nesta decomposição.`;
+                  }
                   return (
-                    <td key={d.year} className="px-3 py-2 text-right font-mono text-xs">
+                    <td
+                      key={d.year}
+                      className={`px-3 py-2 text-right font-mono text-xs ${diverges ? "cursor-help" : ""}`}
+                      title={cellTitle}
+                    >
                       {oe ? (
                         <>
                           {fmtNum(oe.ownerEarnings)}
                           {oe.isApproximated && <span className="ml-1 text-[10px] text-muted-foreground" title="Dados incompletos, aproximado pelo FCF">≈</span>}
-                          {diverges && <span className="ml-1 text-[10px] text-neutral-warn" title={`Diverge muito do FCF reportado (${fmtNum(d.fcf)}). Verifica os dados deste ano ou considera usar o FCF.`}>⚠️</span>}
+                          {diverges && <span className="ml-1 text-[10px] text-neutral-warn">⚠️</span>}
                         </>
                       ) : "—"}
                     </td>

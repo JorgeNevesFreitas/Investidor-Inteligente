@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      valuation_results: {
+        Row: {
+          id: string
+          ticker: string
+          valuation_type: string
+          inputs: Json
+          result: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          ticker: string
+          valuation_type: string
+          inputs: Json
+          result: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          ticker?: string
+          valuation_type?: string
+          inputs?: Json
+          result?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       dcf_valuations: {
         Row: {
           id: string

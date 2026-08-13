@@ -10,6 +10,7 @@ import { listCompanies, DBCompany } from "@/lib/financialDataService";
 import { fetchLatestReportsByTicker, ReportSummary } from "@/lib/reportService";
 import { deleteCompany } from "@/lib/companyDeleteService";
 import { getAllDCFValuations } from "@/lib/dcfService";
+import { getAllBuffettValuations } from "@/lib/valuationService";
 import { fetchQuoteData, fetchMarketPrice, QuoteData } from "@/lib/marketPriceService";
 import { fetchTransactions } from "@/lib/portfolioService";
 import { supabase } from "@/integrations/supabase/client";
@@ -41,6 +42,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const [dbCompanies, setDbCompanies] = useState<DBCompany[]>([]);
   const [dcfMap, setDcfMap] = useState<Map<string, DCFResult>>(new Map());
+  const [buffettValuationsRemote, setBuffettValuationsRemote] = useState<Record<string, any>>({});
   const [quoteMap, setQuoteMap] = useState<Map<string, QuoteData>>(new Map());
   const [livePrice, setLivePrice] = useState<Map<string, number>>(new Map());
   const [reportMap, setReportMap] = useState<Map<string, ReportSummary>>(new Map());
@@ -58,6 +60,7 @@ export default function Dashboard() {
       setDcfMap(map);
     });
     fetchLatestReportsByTicker().then(setReportMap).catch(() => {});
+    getAllBuffettValuations().then(setBuffettValuationsRemote);
     fetchTransactions().then(txns => {
       const qtyMap = new Map<string, number>();
       for (const tx of txns) {
@@ -108,8 +111,18 @@ export default function Dashboard() {
   // quando deixar de ser necessário.
   const getResultWithSource = (ticker: string): { result: DCFResult | null; source: 'buffett' | 'sc' | 'dcf' | 'none' } => {
     try {
+      const savedBuffettRemote = buffettValuationsRemote[ticker];
+      if (savedBuffettRemote) return { result: savedBuffettRemote, source: 'buffett' };
+    } catch {}
+    try {
       const savedBuffett = localStorage.getItem(`buffett-result-${ticker}`);
-      if (savedBuffett) return { result: JSON.parse(savedBuffett), source: 'buffett' };
+      if (savedBuffett) {
+        const parsed = JSON.parse(savedBuffett);
+        if ((parsed.irr === undefined || parsed.irr === null) && typeof parsed.irrAtCurrentPrice === 'number') {
+          parsed.irr = parsed.irrAtCurrentPrice;
+        }
+        return { result: parsed, source: 'buffett' };
+      }
     } catch {}
     try {
       const savedSC = localStorage.getItem(`sc-result-${ticker}`);
@@ -210,6 +223,12 @@ export default function Dashboard() {
       };
     }),
   ];
+
+  analyses.sort((a, b) => {
+    const irrA = a.result && isFinite(a.result.irr) ? a.result.irr : -Infinity;
+    const irrB = b.result && isFinite(b.result.irr) ? b.result.irr : -Infinity;
+    return irrB - irrA;
+  });
 
   const safeFormatPercent = (value: number | null | undefined) => {
     if (value === null || value === undefined || !isFinite(value) || isNaN(value)) return "N/D";

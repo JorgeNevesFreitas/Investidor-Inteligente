@@ -25,10 +25,14 @@ export interface OwnerEarningsYear {
   ownerEarnings: number;
   ownerEarningsGrowth: number | null;
   isApproximated: boolean; // true = caiu no fallback do FCF por faltarem dados
+  netIncome: number;
+  depreciationAmortization: number;
+  capexUsed: number; // valor absoluto usado na fórmula
+  deltaWorkingCapital: number;
 }
 
 export function computeOwnerEarningsSeries(financials: FinancialYear[]): OwnerEarningsYear[] {
-  const raw: { year: number; ownerEarnings: number; isApproximated: boolean }[] = [];
+  const raw: { year: number; ownerEarnings: number; isApproximated: boolean; netIncome: number; depreciationAmortization: number; capexUsed: number; deltaWorkingCapital: number }[] = [];
 
   for (let i = 0; i < financials.length; i++) {
     const cur = financials[i];
@@ -41,7 +45,7 @@ export function computeOwnerEarningsSeries(financials: FinancialYear[]): OwnerEa
       cur.currentLiabilities !== undefined && cur.currentLiabilities !== null;
 
     if (!hasCoreData) {
-      raw.push({ year: cur.year, ownerEarnings: cur.fcf, isApproximated: true });
+      raw.push({ year: cur.year, ownerEarnings: cur.fcf, isApproximated: true, netIncome: cur.netIncome, depreciationAmortization: 0, capexUsed: 0, deltaWorkingCapital: 0 });
       continue;
     }
 
@@ -59,13 +63,13 @@ export function computeOwnerEarningsSeries(financials: FinancialYear[]): OwnerEa
       isApproximated = true;
     }
 
-    raw.push({ year: cur.year, ownerEarnings, isApproximated });
+    raw.push({ year: cur.year, ownerEarnings, isApproximated, netIncome: cur.netIncome, depreciationAmortization: cur.depreciationAmortization ?? 0, capexUsed: Math.abs(cur.capex ?? 0), deltaWorkingCapital });
   }
 
   return raw.map((r, i) => {
     const prevOE = i > 0 ? raw[i - 1].ownerEarnings : null;
     const growth = prevOE && prevOE !== 0 ? ((r.ownerEarnings - prevOE) / Math.abs(prevOE)) * 100 : null;
-    return { year: r.year, ownerEarnings: r.ownerEarnings, ownerEarningsGrowth: growth, isApproximated: r.isApproximated };
+    return { year: r.year, ownerEarnings: r.ownerEarnings, ownerEarningsGrowth: growth, isApproximated: r.isApproximated, netIncome: r.netIncome, depreciationAmortization: r.depreciationAmortization, capexUsed: r.capexUsed, deltaWorkingCapital: r.deltaWorkingCapital };
   });
 }
 
