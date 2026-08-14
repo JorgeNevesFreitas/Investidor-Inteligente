@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { AppLayout } from "@/components/AppLayout";
 import { TrendingUp, TrendingDown, Trash2, StickyNote } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { listCompanies, DBCompany } from "@/lib/financialDataService";
+import { listCompanies, fetchLatestFiscalYears, DBCompany } from "@/lib/financialDataService";
 import { fetchLatestReportsByTicker, ReportSummary } from "@/lib/reportService";
 import { deleteCompany } from "@/lib/companyDeleteService";
 import { getAllDCFValuations } from "@/lib/dcfService";
@@ -46,10 +46,27 @@ export default function Dashboard() {
   const [quoteMap, setQuoteMap] = useState<Map<string, QuoteData>>(new Map());
   const [livePrice, setLivePrice] = useState<Map<string, number>>(new Map());
   const [reportMap, setReportMap] = useState<Map<string, ReportSummary>>(new Map());
+  const [latestFiscalYearMap, setLatestFiscalYearMap] = useState<Map<string, number>>(new Map());
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevStatusesRef = useRef<Map<string, string>>(new Map());
   const [openPositionTickers, setOpenPositionTickers] = useState<Set<string>>(new Set());
+  const [dismissedFiscalAlerts, setDismissedFiscalAlerts] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem('dismissed-fiscal-alerts');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const dismissFiscalAlert = (ticker: string, fyEndYear: number) => {
+    setDismissedFiscalAlerts((prev) => {
+      const next = { ...prev, [ticker]: fyEndYear };
+      localStorage.setItem('dismissed-fiscal-alerts', JSON.stringify(next));
+      return next;
+    });
+  };
 
   // Initial load: companies + DCF results + latest reports
   useEffect(() => {
@@ -60,6 +77,7 @@ export default function Dashboard() {
       setDcfMap(map);
     });
     fetchLatestReportsByTicker().then(setReportMap).catch(() => {});
+    fetchLatestFiscalYears().then(setLatestFiscalYearMap).catch(() => {});
     getAllBuffettValuations().then(setBuffettValuationsRemote);
     fetchTransactions().then(txns => {
       const qtyMap = new Map<string, number>();
@@ -248,6 +266,46 @@ export default function Dashboard() {
   const fmtReportPeriod = (r: ReportSummary) =>
     r.period_month ? `${MONTH_ABBR[r.period_month - 1]} ${r.period_year}` : `FY${r.period_year}`;
 
+  // Alerta de dados desatualizados face ao calendário do exercício fiscal da empresa.
+  const getFiscalYearAlert = (
+    ticker: string,
+    fiscalYearEndMonth: number,
+    latestImportedYear: number | undefined,
+  ): { type: 'none' | 'warning' | 'danger' | 'ambiguous'; fyEndYear: number; message: string } => {
+    const today = new Date();
+    const currentMonth = today.getMonth() + 1;
+    const currentYear = today.getFullYear();
+
+    // Fim de exercício fiscal mais recente que já deveria ter ocorrido.
+    const fyEndYear = currentMonth >= fiscalYearEndMonth ? currentYear : currentYear - 1;
+
+    if (latestImportedYear !== undefined && latestImportedYear >= fyEndYear) {
+      return { type: 'none', fyEndYear, message: '' };
+    }
+
+    // Fechos em Jan/Fev são ambíguos: a convenção de rotulagem do ano fiscal (ex: exercícios
+    // que terminam "no domingo mais próximo de 31 de Dezembro", como a JNJ) pode não coincidir
+    // com o ano civil aqui calculado, por isso não decidimos automaticamente — pedimos confirmação.
+    if (fiscalYearEndMonth === 1 || fiscalYearEndMonth === 2) {
+      if (dismissedFiscalAlerts[ticker] === fyEndYear) {
+        return { type: 'none', fyEndYear, message: '' };
+      }
+      return {
+        type: 'ambiguous',
+        fyEndYear,
+        message: 'Esta empresa tem fecho de exercício em Janeiro/Fevereiro. O ano fiscal mais recente nos nossos dados pode já estar correto, mesmo que o mês nominal sugira o contrário (ex: exercícios que terminam "no domingo mais próximo de 31 de Dezembro", como a JNJ). Confirma manualmente e dispensa o alerta se os dados já estiverem atualizados.',
+      };
+    }
+
+    const nextMonth = fiscalYearEndMonth === 12 ? 1 : fiscalYearEndMonth + 1;
+    const nextMonthYear = fiscalYearEndMonth === 12 ? fyEndYear + 1 : fyEndYear;
+    const monthsPassed = (currentYear - nextMonthYear) * 12 + (currentMonth - nextMonth);
+
+    const type = monthsPassed <= 0 ? 'warning' : 'danger';
+    const message = `Dados desatualizados: o exercício fiscal terminado em ${MONTH_ABBR[fiscalYearEndMonth - 1]}/${fyEndYear} ainda não foi importado. Último ano disponível: ${latestImportedYear ?? "nenhum"}.`;
+    return { type, fyEndYear, message };
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -341,10 +399,37 @@ export default function Dashboard() {
                   <td className="hidden sm:table-cell px-3 py-2.5 text-xs text-muted-foreground">
                     {a.quoteLoading ? <Loading /> : (a.sector || <Dash />)}
                   </td>
-                  <td className="hidden sm:table-cell px-3 py-2.5 text-xs text-muted-foreground">
-                    {a.dbCompany?.fiscal_year_end_month
-                      ? MONTH_ABBR[a.dbCompany.fiscal_year_end_month - 1]
-                      : <Dash />}
+                  <td className="hidden sm:table-cell px-3 py-2.5 text-xs">
+                    {(() => {
+                      const month = a.dbCompany?.fiscal_year_end_month;
+                      if (!month) return <Dash />;
+                      const alert = getFiscalYearAlert(
+                        a.ticker,
+                        month,
+                        a.dbCompany ? latestFiscalYearMap.get(a.dbCompany.id) : undefined,
+                      );
+                      const colorClass = alert.type === 'warning' ? "text-neutral-warn"
+                        : alert.type === 'danger' ? "text-negative"
+                        : alert.type === 'ambiguous' ? "text-blue-400"
+                        : "text-muted-foreground";
+                      return (
+                        <span className="inline-flex items-center gap-1">
+                          <span className={colorClass} title={alert.type !== 'none' ? alert.message : undefined}>
+                            {MONTH_ABBR[month - 1]}
+                          </span>
+                          {alert.type === 'ambiguous' && (
+                            <button
+                              type="button"
+                              title="Dispensar alerta até ao próximo ano"
+                              onClick={(e) => { e.stopPropagation(); dismissFiscalAlert(a.ticker, alert.fyEndYear); }}
+                              className="text-muted-foreground hover:text-positive transition-colors leading-none"
+                            >
+                              ✓
+                            </button>
+                          )}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-xs">
                     {a.quoteLoading ? <Loading /> : (a.pe ? a.pe.toFixed(1) : <Dash />)}

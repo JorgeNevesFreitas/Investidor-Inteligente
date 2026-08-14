@@ -313,6 +313,21 @@ export async function listCompanies(): Promise<DBCompany[]> {
   return result.companies || [];
 }
 
+// Último ano fiscal com dados já importados, por empresa (company_id -> fiscal_year mais recente).
+export async function fetchLatestFiscalYears(): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('financial_statement_years')
+    .select('company_id, fiscal_year');
+  if (error) throw error;
+
+  const map = new Map<string, number>();
+  for (const row of data || []) {
+    const current = map.get(row.company_id);
+    if (current === undefined || row.fiscal_year > current) map.set(row.company_id, row.fiscal_year);
+  }
+  return map;
+}
+
 export async function updateCompanyNotes(companyId: string, notes: string): Promise<{ notes_updated_at: string }> {
   const notes_updated_at = new Date().toISOString();
   const { error } = await supabase.from('companies').update({ notes, notes_updated_at }).eq('id', companyId);
