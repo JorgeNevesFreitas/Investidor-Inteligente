@@ -23,6 +23,7 @@ import {
   dbFinancialsToFinancialYears,
   dbToCompany,
   updateCompanyNotes,
+  updateCompanyLinks,
   DBCompany,
   ImportResult,
 } from "@/lib/financialDataService";
@@ -78,7 +79,10 @@ function stockAnalysisUrl(ticker: string, dbCompany: DBCompany | null, isUS: boo
   return `https://stockanalysis.com/stocks/${ticker.toLowerCase()}/`;
 }
 
-const IR_STORAGE_KEY = (ticker: string) => `ir-url-${ticker}`;
+function investingComUrl(ticker: string, dbCompany: DBCompany | null): string {
+  if (dbCompany?.investing_url) return dbCompany.investing_url;
+  return `https://www.investing.com/search/?q=${encodeURIComponent(ticker)}`;
+}
 
 // ── component ─────────────────────────────────────────────────────────────────
 
@@ -107,10 +111,10 @@ export default function CompanyAnalysis() {
   const [modalAction, setModalAction] = useState<'refresh' | 'year'>('refresh');
   const [selectedSource, setSelectedSource] = useState<ImportSource>('sec');
 
-  // Reference links
-  const [irUrl, setIrUrl] = useState("");
-  const [irDraft, setIrDraft] = useState("");
-  const [showIrEdit, setShowIrEdit] = useState(false);
+  // Reference links (investing_url / ir_url, persisted on companies)
+  const [linkEditField, setLinkEditField] = useState<"investing" | "ir" | null>(null);
+  const [linkDraft, setLinkDraft] = useState("");
+  const [savingLink, setSavingLink] = useState(false);
 
   // Year display
   const [showAllYears, setShowAllYears] = useState(false);
@@ -137,27 +141,39 @@ export default function CompanyAnalysis() {
 
   const mockCompany = MOCK_COMPANIES.find(c => c.ticker === ticker);
 
-  // Load IR URL from localStorage
-  useEffect(() => {
-    if (!ticker) return;
-    const stored = localStorage.getItem(IR_STORAGE_KEY(ticker)) || "";
-    setIrUrl(stored);
-    setIrDraft(stored);
-  }, [ticker]);
-
-  const saveIrUrl = () => {
-    if (!ticker) return;
-    localStorage.setItem(IR_STORAGE_KEY(ticker), irDraft.trim());
-    setIrUrl(irDraft.trim());
-    setShowIrEdit(false);
+  const openLinkEdit = (field: "investing" | "ir", current: string) => {
+    setLinkDraft(current);
+    setLinkEditField(field);
   };
 
-  const clearIrUrl = () => {
-    if (!ticker) return;
-    localStorage.removeItem(IR_STORAGE_KEY(ticker));
-    setIrUrl("");
-    setIrDraft("");
-    setShowIrEdit(false);
+  const saveLink = async () => {
+    if (!dbCompany?.id || !linkEditField) return;
+    const value = linkDraft.trim();
+    setSavingLink(true);
+    try {
+      await updateCompanyLinks(dbCompany.id, { [`${linkEditField}_url`]: value || null });
+      setDbCompany(prev => (prev ? { ...prev, [`${linkEditField}_url`]: value || null } : prev));
+      setLinkEditField(null);
+    } catch (err) {
+      toast({ title: "Erro", description: err instanceof Error ? err.message : "Falha ao guardar", variant: "destructive" });
+    } finally {
+      setSavingLink(false);
+    }
+  };
+
+  const clearLink = async () => {
+    if (!dbCompany?.id || !linkEditField) return;
+    setSavingLink(true);
+    try {
+      await updateCompanyLinks(dbCompany.id, { [`${linkEditField}_url`]: null });
+      setDbCompany(prev => (prev ? { ...prev, [`${linkEditField}_url`]: null } : prev));
+      setLinkEditField(null);
+      setLinkDraft("");
+    } catch (err) {
+      toast({ title: "Erro", description: err instanceof Error ? err.message : "Falha ao remover", variant: "destructive" });
+    } finally {
+      setSavingLink(false);
+    }
   };
 
   // Load DB data
@@ -491,6 +507,8 @@ export default function CompanyAnalysis() {
 
   const saUrl  = stockAnalysisUrl(companyTicker, dbCompany, isUS);
   const secUrl = secEdgarUrl(companyTicker, dbCompany?.cik || null);
+  const investingUrl = investingComUrl(companyTicker, dbCompany);
+  const irUrl = dbCompany?.ir_url || "";
 
   const kpis = last ? [
     { label: "Preço",      value: hasPriceValid ? `$${effectivePrice!.toFixed(2)}` : (marketPrice?.status === "loading" ? "..." : "—") },
@@ -538,19 +556,29 @@ export default function CompanyAnalysis() {
                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                 <ExternalLink className="h-3 w-3" />StockAnalysis
               </a>
+              <span className="inline-flex items-center gap-1">
+                <a href={investingUrl} target="_blank" rel="noopener noreferrer"
+                   className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+                  <ExternalLink className="h-3 w-3" />Investing.com
+                </a>
+                <button onClick={() => openLinkEdit("investing", dbCompany?.investing_url || "")}
+                        className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors">
+                  <Pencil className="h-2.5 w-2.5" />
+                </button>
+              </span>
               {irUrl ? (
                 <span className="inline-flex items-center gap-1">
                   <a href={irUrl} target="_blank" rel="noopener noreferrer"
                      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                     <ExternalLink className="h-3 w-3" />Investor Relations
                   </a>
-                  <button onClick={() => { setIrDraft(irUrl); setShowIrEdit(true); }}
+                  <button onClick={() => openLinkEdit("ir", irUrl)}
                           className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors">
                     <Pencil className="h-2.5 w-2.5" />
                   </button>
                 </span>
               ) : (
-                <button onClick={() => { setIrDraft(""); setShowIrEdit(true); }}
+                <button onClick={() => openLinkEdit("ir", "")}
                         className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                   <Link2 className="h-3 w-3" />Adicionar IR
                 </button>
@@ -571,25 +599,25 @@ export default function CompanyAnalysis() {
           </div>
         </div>
 
-        {/* ── IR URL editor ── */}
-        {showIrEdit && (
+        {/* ── Investing.com / IR URL editor ── */}
+        {linkEditField && (
           <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3">
             <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
             <Input
-              placeholder="https://investor.empresa.com"
-              value={irDraft}
-              onChange={e => setIrDraft(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && saveIrUrl()}
+              placeholder={linkEditField === "ir" ? "https://investor.empresa.com" : "https://www.investing.com/equities/..."}
+              value={linkDraft}
+              onChange={e => setLinkDraft(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && saveLink()}
               className="h-8 text-xs"
               autoFocus
             />
-            <Button size="sm" onClick={saveIrUrl} disabled={!irDraft.trim()} className="text-xs shrink-0">Guardar</Button>
-            {irUrl && (
-              <Button size="sm" variant="ghost" onClick={clearIrUrl} className="text-xs shrink-0 text-destructive hover:text-destructive">
+            <Button size="sm" onClick={saveLink} disabled={!linkDraft.trim() || savingLink} className="text-xs shrink-0">Guardar</Button>
+            {((linkEditField === "ir" && irUrl) || (linkEditField === "investing" && dbCompany?.investing_url)) && (
+              <Button size="sm" variant="ghost" onClick={clearLink} disabled={savingLink} className="text-xs shrink-0 text-destructive hover:text-destructive">
                 <X className="h-3.5 w-3.5 mr-1" />Remover
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={() => setShowIrEdit(false)} className="text-xs shrink-0">Cancelar</Button>
+            <Button size="sm" variant="ghost" onClick={() => setLinkEditField(null)} className="text-xs shrink-0">Cancelar</Button>
           </div>
         )}
 

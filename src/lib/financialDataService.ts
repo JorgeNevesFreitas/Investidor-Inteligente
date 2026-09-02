@@ -14,6 +14,8 @@ export interface DBCompany {
   cik: string | null;
   sec_enabled: boolean | null;
   stockanalysis_url: string | null;
+  investing_url: string | null;
+  ir_url: string | null;
   primary_data_source: string | null;
   current_price: number | null;
   market_cap: number | null;
@@ -333,4 +335,12 @@ export async function updateCompanyNotes(companyId: string, notes: string): Prom
   const { error } = await supabase.from('companies').update({ notes, notes_updated_at }).eq('id', companyId);
   if (error) throw error;
   return { notes_updated_at };
+}
+
+export async function updateCompanyLinks(
+  companyId: string,
+  links: { investing_url?: string | null; ir_url?: string | null }
+): Promise<void> {
+  const { error } = await supabase.from('companies').update(links).eq('id', companyId);
+  if (error) throw error;
 }

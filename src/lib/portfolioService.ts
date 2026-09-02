@@ -54,6 +54,25 @@ export interface PortfolioCashMember {
   percentage: number;
 }
 
+export interface PortfolioMemberSnapshotValue {
+  value_eur: number;
+  invested_eur: number;
+  cash_eur: number;
+}
+
+export interface PortfolioDailySnapshot {
+  id: string;
+  snapshot_date: string;
+  total_value_eur: number;
+  total_invested_eur: number;
+  total_cash_eur: number;
+  eur_usd_rate: number | null;
+  benchmark_ticker: string;
+  benchmark_close: number | null;
+  member_values: Record<string, PortfolioMemberSnapshotValue>;
+  created_at: string;
+}
+
 export interface Position {
   ticker: string;
   company_name: string | null;
@@ -222,6 +241,15 @@ export async function fetchCashMembers(): Promise<PortfolioCashMember[]> {
     .select('*');
   if (error) throw error;
   return (data || []) as PortfolioCashMember[];
+}
+
+export async function fetchDailySnapshots(): Promise<PortfolioDailySnapshot[]> {
+  const { data, error } = await supabase
+    .from('portfolio_daily_snapshot')
+    .select('*')
+    .order('snapshot_date', { ascending: true });
+  if (error) throw error;
+  return (data || []) as PortfolioDailySnapshot[];
 }
 
 export async function addTransaction(
