@@ -1,6 +1,7 @@
 import { useMemo, useState, Fragment } from "react";
 import { ChevronDown, ChevronRight, StickyNote, Trash2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Position, PortfolioMember, PortfolioCash, PortfolioCashMember,
   PortfolioTransaction, PortfolioDividend,
@@ -241,6 +242,7 @@ interface PositionDrilldownProps {
 }
 
 function PositionDrilldown({ position, onDeleteTransaction, onDeleteDividend }: PositionDrilldownProps) {
+  const { canEdit } = useAuth();
   return (
     <div className="space-y-4">
       {position.transactions.length > 0 && (
@@ -270,11 +272,13 @@ function PositionDrilldown({ position, onDeleteTransaction, onDeleteDividend }: 
                     <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">{tx.currency}</td>
                     <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">{tx.broker}</td>
                     <td className="px-2.5 py-1.5 text-center">
-                      <button
-                        onClick={() => onDeleteTransaction(tx)}
-                        className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => onDeleteTransaction(tx)}
+                          className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -308,11 +312,13 @@ function PositionDrilldown({ position, onDeleteTransaction, onDeleteDividend }: 
                     <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">{div.currency}</td>
                     <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">{div.broker}</td>
                     <td className="px-2.5 py-1.5 text-center">
-                      <button
-                        onClick={() => onDeleteDividend(div)}
-                        className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => onDeleteDividend(div)}
+                          className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -336,6 +342,7 @@ interface HistoryTableProps {
 }
 
 function HistoryTable({ rows, companyByTicker, onDelete }: HistoryTableProps) {
+  const { canEdit } = useAuth();
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 flex flex-col items-center justify-center text-center">
@@ -378,11 +385,13 @@ function HistoryTable({ rows, companyByTicker, onDelete }: HistoryTableProps) {
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">{tx.currency}</td>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">{tx.broker}</td>
                 <td className="px-3 py-2.5 text-center">
-                  <button
-                    onClick={() => onDelete(tx)}
-                    className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => onDelete(tx)}
+                      className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </td>
               </tr>
             );
@@ -400,6 +409,7 @@ interface DividendsTableProps {
 }
 
 function DividendsTable({ rows, companyByTicker, onDelete }: DividendsTableProps) {
+  const { canEdit } = useAuth();
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 flex flex-col items-center justify-center text-center">
@@ -439,11 +449,13 @@ function DividendsTable({ rows, companyByTicker, onDelete }: DividendsTableProps
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">{div.currency}</td>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">{div.broker}</td>
                 <td className="px-3 py-2.5 text-center">
-                  <button
-                    onClick={() => onDelete(div)}
-                    className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => onDelete(div)}
+                      className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </td>
               </tr>
             );

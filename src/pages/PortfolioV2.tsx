@@ -3,6 +3,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, Plus, Wallet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   PortfolioTransaction, PortfolioDividend, Position, PortfolioMember,
   PortfolioCash, PortfolioCashMember, PortfolioDailySnapshot,
@@ -29,6 +30,7 @@ import { ActiveAlerts, AlertRow } from "@/components/portfolio-v2/ActiveAlerts";
 
 export default function PortfolioV2() {
   const { toast } = useToast();
+  const { canEdit } = useAuth();
   const [transactions, setTransactions] = useState<PortfolioTransaction[]>([]);
   const [dividends, setDividends] = useState<PortfolioDividend[]>([]);
   const [companies, setCompanies] = useState<DBCompany[]>([]);
@@ -416,12 +418,16 @@ export default function PortfolioV2() {
               onClick={() => doFetchPrices(transactions, dividends)} disabled={pricesLoading} title="Refresh de preços">
               {pricesLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             </Button>
-            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowAddCash(true)}>
-              <Wallet className="h-3.5 w-3.5" />Registar liquidez
-            </Button>
-            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowAdd(true)}>
-              <Plus className="h-3.5 w-3.5" />Registar transação
-            </Button>
+            {canEdit && (
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowAddCash(true)}>
+                <Wallet className="h-3.5 w-3.5" />Registar liquidez
+              </Button>
+            )}
+            {canEdit && (
+              <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowAdd(true)}>
+                <Plus className="h-3.5 w-3.5" />Registar transação
+              </Button>
+            )}
           </div>
         </div>
 

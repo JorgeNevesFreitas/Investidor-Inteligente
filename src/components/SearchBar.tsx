@@ -7,6 +7,7 @@ import { importFromSEC, importFromStockAnalysis } from "@/lib/financialDataServi
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface SearchResult {
   ticker: string;
@@ -36,6 +37,7 @@ export function SearchBar() {
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { canEdit } = useAuth();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   const [pendingImport, setPendingImport] = useState<SearchResult | null>(null);
@@ -208,13 +210,15 @@ export function SearchBar() {
                 >
                   <ArrowRight className="h-3.5 w-3.5" />
                 </button>
-                <button
-                  onClick={e => handleAddToWishlist(e, s)}
-                  title="Adicionar à Wishlist"
-                  className="rounded p-1.5 text-muted-foreground hover:text-warning hover:bg-warning/10 transition-colors"
-                >
-                  <Star className="h-3.5 w-3.5" />
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={e => handleAddToWishlist(e, s)}
+                    title="Adicionar à Wishlist"
+                    className="rounded p-1.5 text-muted-foreground hover:text-warning hover:bg-warning/10 transition-colors"
+                  >
+                    <Star className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -297,23 +301,31 @@ export function SearchBar() {
             </div>
           )}
 
+          {!canEdit && (
+            <p className="text-[11px] text-muted-foreground">
+              Esta empresa ainda não está na aplicação. Apenas administradores e investidores podem importar novas empresas.
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <Button
               variant="outline" size="sm" className="text-xs h-8"
               onClick={() => setPendingImport(null)}
               disabled={importing}
             >
-              Cancelar
+              {canEdit ? "Cancelar" : "Fechar"}
             </Button>
-            <Button
-              size="sm" className="text-xs h-8"
-              onClick={handleConfirmImport}
-              disabled={importing || (importSource === 'stockanalysis' && !saUrl.trim())}
-            >
-              {importing
-                ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />A importar...</>
-                : 'Confirmar importação'}
-            </Button>
+            {canEdit && (
+              <Button
+                size="sm" className="text-xs h-8"
+                onClick={handleConfirmImport}
+                disabled={importing || (importSource === 'stockanalysis' && !saUrl.trim())}
+              >
+                {importing
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />A importar...</>
+                  : 'Confirmar importação'}
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

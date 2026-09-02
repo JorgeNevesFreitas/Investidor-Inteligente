@@ -13,6 +13,7 @@ import { formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "./StatusBadge";
 import { fetchMarketPrice } from "@/lib/marketPriceService";
 import { saveBuffettValuation, getBuffettValuation } from "@/lib/valuationService";
+import { useAuth } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react";
 
 interface ValuationBuffettProps {
@@ -41,6 +42,7 @@ type FormInputs = {
 const DEFAULT_GROWTH_PERPETUAL = 2;
 
 export function ValuationBuffett({ company, marketPrice, priceStatus = "success", priceTimestamp }: ValuationBuffettProps) {
+  const { canEdit } = useAuth();
   const lastYear = company.financials[company.financials.length - 1];
   const storageKey = `buffett-inputs-${company.ticker}`;
 
@@ -173,9 +175,9 @@ export function ValuationBuffett({ company, marketPrice, priceStatus = "success"
           <div className="space-y-3">
             <div>
               <label className="text-xs text-muted-foreground">Owner Earnings de partida ($M)</label>
-              <input type="number" step="0.01" value={inputs.baseOwnerEarnings}
+              <input type="number" step="0.01" value={inputs.baseOwnerEarnings} disabled={!canEdit}
                 onChange={(e) => updateInput("baseOwnerEarnings", e.target.value === "" ? "" : Number(e.target.value))}
-                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-70 disabled:cursor-not-allowed" />
               {divergesFromFCF && (
                 <p className="mt-1 text-[10px] text-neutral-warn">
                   ⚠️ Este valor diverge muito do FCF reportado ({lastYear.fcf.toLocaleString(undefined, { maximumFractionDigits: 0 })} $M em {lastYear.year}). Verifica os dados financeiros desta empresa (aba Financials) ou considera usar o FCF como valor de partida.
@@ -184,24 +186,24 @@ export function ValuationBuffett({ company, marketPrice, priceStatus = "success"
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Crescimento anos 1-10 (%)</label>
-              <input type="number" step="0.5" value={inputs.growthRateNearTerm} placeholder="Obrigatório"
+              <input type="number" step="0.5" value={inputs.growthRateNearTerm} placeholder="Obrigatório" disabled={!canEdit}
                 onChange={(e) => updateInput("growthRateNearTerm", e.target.value === "" ? "" : Number(e.target.value))}
-                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-70 disabled:cursor-not-allowed" />
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Crescimento perpétuo (%)</label>
-              <input type="number" step="0.1" value={inputs.growthRatePerpetual} placeholder="Obrigatório"
+              <input type="number" step="0.1" value={inputs.growthRatePerpetual} placeholder="Obrigatório" disabled={!canEdit}
                 onChange={(e) => updateInput("growthRatePerpetual", e.target.value === "" ? "" : Number(e.target.value))}
-                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-70 disabled:cursor-not-allowed" />
               <p className="mt-1 text-[10px] text-muted-foreground">
                 Intervalo lógico: 0% a 3%, abaixo do crescimento nominal de longo prazo da economia. Acima disto assume-se crescimento infinito irrealista.
               </p>
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Taxa de desconto (%)</label>
-              <input type="number" step="0.1" value={inputs.discountRate} placeholder="Obrigatório"
+              <input type="number" step="0.1" value={inputs.discountRate} placeholder="Obrigatório" disabled={!canEdit}
                 onChange={(e) => updateInput("discountRate", e.target.value === "" ? "" : Number(e.target.value))}
-                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-70 disabled:cursor-not-allowed" />
               <p className="mt-1 text-[10px] text-muted-foreground">
                 {treasuryYieldStatus === "loading" && "A obter yield atual das obrigações a 10 anos..."}
                 {treasuryYieldStatus === "success" && `Referência: yield atual das obrigações do tesouro a 10 anos = ${treasuryYield}%`}
@@ -210,9 +212,9 @@ export function ValuationBuffett({ company, marketPrice, priceStatus = "success"
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Margem de segurança (%)</label>
-              <input type="number" step="1" value={inputs.marginOfSafety} placeholder="Obrigatório"
+              <input type="number" step="1" value={inputs.marginOfSafety} placeholder="Obrigatório" disabled={!canEdit}
                 onChange={(e) => updateInput("marginOfSafety", e.target.value === "" ? "" : Number(e.target.value))}
-                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-70 disabled:cursor-not-allowed" />
             </div>
           </div>
 

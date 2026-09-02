@@ -15,6 +15,7 @@ import { fetchQuoteData, fetchMarketPrice, QuoteData } from "@/lib/marketPriceSe
 import { fetchTransactions } from "@/lib/portfolioService";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +41,7 @@ function computeLiveStatus(
 
 export default function Dashboard() {
   const { toast } = useToast();
+  const { canEdit } = useAuth();
   const [dbCompanies, setDbCompanies] = useState<DBCompany[]>([]);
   const [dcfMap, setDcfMap] = useState<Map<string, DCFResult>>(new Map());
   const [buffettValuationsRemote, setBuffettValuationsRemote] = useState<Record<string, any>>({});
@@ -464,7 +466,7 @@ export default function Dashboard() {
                     )}
                   </td>
                   <td className="px-3 py-2.5">
-                    {a.dbCompany && (
+                    {a.dbCompany && canEdit && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <button className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">

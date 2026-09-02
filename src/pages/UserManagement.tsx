@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Loader2, UserPlus, Trash2, ShieldCheck, User } from 'lucide-react';
+import { Loader2, UserPlus, Trash2, ShieldCheck, User, Eye } from 'lucide-react';
 import { AppLayout } from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,14 @@ interface ManagedUser {
   created_at: string;
 }
 
-type NewRole = 'admin' | 'user';
+type NewRole = 'admin' | 'investor' | 'viewer';
+
+function roleBadge(role: string) {
+  if (role === 'admin') return { icon: ShieldCheck, label: 'Administrador', className: 'bg-primary/15 text-primary' };
+  if (role === 'viewer') return { icon: Eye, label: 'Utilizador', className: 'bg-muted text-muted-foreground' };
+  // 'investor' and the legacy 'user' value both display as Investidor — see AuthContext's normalization.
+  return { icon: User, label: 'Investidor', className: 'bg-muted text-muted-foreground' };
+}
 
 export default function UserManagement() {
   const { user: currentUser } = useAuth();
@@ -27,7 +34,7 @@ export default function UserManagement() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [newRole, setNewRole] = useState<NewRole>('user');
+  const [newRole, setNewRole] = useState<NewRole>('investor');
   const [adding, setAdding] = useState(false);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -63,7 +70,7 @@ export default function UserManagement() {
     setShowAddDialog(false);
     setNewEmail('');
     setNewPassword('');
-    setNewRole('user');
+    setNewRole('investor');
     await loadUsers();
   };
 
@@ -116,15 +123,15 @@ export default function UserManagement() {
                   <tr key={u.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3 text-xs text-foreground">{u.email}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                        u.role === 'admin'
-                          ? 'bg-primary/15 text-primary'
-                          : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {u.role === 'admin'
-                          ? <><ShieldCheck className="h-3 w-3" />Administrador</>
-                          : <><User className="h-3 w-3" />Utilizador</>}
-                      </span>
+                      {(() => {
+                        const badge = roleBadge(u.role);
+                        const Icon = badge.icon;
+                        return (
+                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${badge.className}`}>
+                            <Icon className="h-3 w-3" />{badge.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {new Date(u.created_at).toLocaleDateString('pt-PT')}
@@ -195,8 +202,9 @@ export default function UserManagement() {
               <label className="text-xs text-muted-foreground block mb-2">Tipo de acesso</label>
               <div className="space-y-2">
                 {([
-                  { value: 'user' as NewRole, label: 'Utilizador', desc: 'Acesso a todas as funcionalidades da app' },
                   { value: 'admin' as NewRole, label: 'Administrador', desc: 'Acesso total, incluindo gestão de utilizadores' },
+                  { value: 'investor' as NewRole, label: 'Investidor', desc: 'Pode registar transações, liquidez, dividendos, notas, alertas e importar dados. Sem acesso à gestão de utilizadores' },
+                  { value: 'viewer' as NewRole, label: 'Utilizador', desc: 'Apenas consulta — vê todos os dados mas não pode registar, editar ou apagar nada' },
                 ] as const).map(opt => (
                   <label key={opt.value} className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
                     newRole === opt.value ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/30'

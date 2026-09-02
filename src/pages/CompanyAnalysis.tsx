@@ -15,6 +15,7 @@ import {
   ChevronDown, ChevronUp, StickyNote,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { fetchMarketPrice, MarketPriceResult } from "@/lib/marketPriceService";
 import {
   getCompanyData,
@@ -89,6 +90,7 @@ function investingComUrl(ticker: string, dbCompany: DBCompany | null): string {
 export default function CompanyAnalysis() {
   const { ticker } = useParams();
   const { toast } = useToast();
+  const { canEdit } = useAuth();
 
   // DB state
   const [dbCompany, setDbCompany] = useState<DBCompany | null>(null);
@@ -424,10 +426,12 @@ export default function CompanyAnalysis() {
           <p className="mt-1 text-sm text-muted-foreground">O ticker "{ticker}" não está disponível.</p>
           <div className="mt-4 flex gap-2">
             <Link to="/" className="text-sm text-primary hover:underline">Voltar ao Dashboard</Link>
-            <Button size="sm" onClick={handleRefresh} disabled={isImporting}>
-              {isImporting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-              Importar dados
-            </Button>
+            {canEdit && (
+              <Button size="sm" onClick={handleRefresh} disabled={isImporting}>
+                {isImporting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                Importar dados
+              </Button>
+            )}
           </div>
         </div>
 
@@ -561,10 +565,12 @@ export default function CompanyAnalysis() {
                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                   <ExternalLink className="h-3 w-3" />Investing.com
                 </a>
-                <button onClick={() => openLinkEdit("investing", dbCompany?.investing_url || "")}
-                        className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors">
-                  <Pencil className="h-2.5 w-2.5" />
-                </button>
+                {canEdit && (
+                  <button onClick={() => openLinkEdit("investing", dbCompany?.investing_url || "")}
+                          className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors">
+                    <Pencil className="h-2.5 w-2.5" />
+                  </button>
+                )}
               </span>
               {irUrl ? (
                 <span className="inline-flex items-center gap-1">
@@ -572,31 +578,35 @@ export default function CompanyAnalysis() {
                      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                     <ExternalLink className="h-3 w-3" />Investor Relations
                   </a>
-                  <button onClick={() => openLinkEdit("ir", irUrl)}
-                          className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors">
-                    <Pencil className="h-2.5 w-2.5" />
-                  </button>
+                  {canEdit && (
+                    <button onClick={() => openLinkEdit("ir", irUrl)}
+                            className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors">
+                      <Pencil className="h-2.5 w-2.5" />
+                    </button>
+                  )}
                 </span>
-              ) : (
+              ) : canEdit ? (
                 <button onClick={() => openLinkEdit("ir", "")}
                         className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                   <Link2 className="h-3 w-3" />Adicionar IR
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
 
           {/* Action buttons — icon-only on mobile, labelled on sm+ */}
-          <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isImporting} className="text-xs h-9 w-9 sm:w-auto sm:px-3">
-              {isImporting
-                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span className="hidden sm:inline ml-1">A importar...</span></>
-                : <><RefreshCw className="h-3.5 w-3.5" /><span className="hidden sm:inline ml-1">Atualizar</span></>}
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleImportYear} disabled={isImporting} className="text-xs h-9 w-9 sm:w-auto sm:px-3">
-              <Calendar className="h-3.5 w-3.5" /><span className="hidden sm:inline ml-1">Importar ano</span>
-            </Button>
-          </div>
+          {canEdit && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isImporting} className="text-xs h-9 w-9 sm:w-auto sm:px-3">
+                {isImporting
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span className="hidden sm:inline ml-1">A importar...</span></>
+                  : <><RefreshCw className="h-3.5 w-3.5" /><span className="hidden sm:inline ml-1">Atualizar</span></>}
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleImportYear} disabled={isImporting} className="text-xs h-9 w-9 sm:w-auto sm:px-3">
+                <Calendar className="h-3.5 w-3.5" /><span className="hidden sm:inline ml-1">Importar ano</span>
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* ── Investing.com / IR URL editor ── */}
@@ -802,9 +812,11 @@ export default function CompanyAnalysis() {
               <div className="rounded-lg border border-border bg-card overflow-hidden">
                 <div className="border-b border-border px-4 py-2.5 flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-foreground">Relatórios de Análise</h3>
-                  <Button size="sm" className="text-xs h-7" onClick={() => setShowUploadModal(true)}>
-                    <Upload className="h-3.5 w-3.5 mr-1" />Adicionar
-                  </Button>
+                  {canEdit && (
+                    <Button size="sm" className="text-xs h-7" onClick={() => setShowUploadModal(true)}>
+                      <Upload className="h-3.5 w-3.5 mr-1" />Adicionar
+                    </Button>
+                  )}
                 </div>
                 {loadingReports ? (
                   <div className="flex items-center justify-center py-8">
@@ -844,10 +856,12 @@ export default function CompanyAnalysis() {
                                 <ExternalLink className="h-3.5 w-3.5 mr-1" />Descarregar
                               </Button>
                             )}
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                              onClick={() => handleDeleteReport(report.id, report.file_path)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            {canEdit && (
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                onClick={() => handleDeleteReport(report.id, report.file_path)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         </div>
                         {expandedReportId === report.id && report.content_html && (
@@ -885,9 +899,11 @@ export default function CompanyAnalysis() {
                           Última atualização: {new Date(notesUpdatedAt).toLocaleDateString("pt-PT", { month: "2-digit", year: "numeric" })}
                         </span>
                       ) : null}
-                      <Button variant="outline" size="sm" className="h-6 text-[11px] px-2" onClick={handleSaveNotesNow} disabled={notesSaving}>
-                        Guardar
-                      </Button>
+                      {canEdit && (
+                        <Button variant="outline" size="sm" className="h-6 text-[11px] px-2" onClick={handleSaveNotesNow} disabled={notesSaving}>
+                          Guardar
+                        </Button>
+                      )}
                     </div>
                   </div>
                   <textarea
@@ -895,7 +911,8 @@ export default function CompanyAnalysis() {
                     onChange={e => handleNotesChange(e.target.value)}
                     placeholder="Escreve notas livres sobre esta empresa..."
                     rows={6}
-                    className="w-full min-h-[140px] text-xs text-foreground bg-transparent border border-border/50 rounded-md p-2 outline-none focus:border-primary/40 resize-y placeholder:text-muted-foreground/50"
+                    disabled={!canEdit}
+                    className="w-full min-h-[140px] text-xs text-foreground bg-transparent border border-border/50 rounded-md p-2 outline-none focus:border-primary/40 resize-y placeholder:text-muted-foreground/50 disabled:opacity-70 disabled:cursor-not-allowed"
                   />
                 </div>
               </TabsContent>

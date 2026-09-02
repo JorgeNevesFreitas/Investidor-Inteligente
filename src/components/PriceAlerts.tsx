@@ -3,6 +3,7 @@ import { Bell, BellOff, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   PriceAlert,
   fetchAlertsForTicker,
@@ -31,6 +32,7 @@ const AUTO_CATEGORIES: {
 
 export function PriceAlerts({ ticker, companyId, companyName, currency }: Props) {
   const { toast } = useToast();
+  const { canEdit } = useAuth();
   const [loading, setLoading] = useState(true);
   const [autoAlerts, setAutoAlerts] = useState<Map<string, PriceAlert>>(new Map());
   const [manualAlerts, setManualAlerts] = useState<PriceAlert[]>([]);
@@ -53,15 +55,17 @@ export function PriceAlerts({ ticker, companyId, companyName, currency }: Props)
             manual.push(a);
           }
         }
-        // Auto-create missing auto alerts as active on first visit
-        const ALL_AUTO: ('auto_invest' | 'auto_atento' | 'auto_aguardar')[] =
-          ['auto_invest', 'auto_atento', 'auto_aguardar'];
-        for (const category of ALL_AUTO) {
-          if (!autoMap.has(category)) {
-            try {
-              const created = await upsertAutoAlert({ ticker, companyId, companyName, category, isActive: true });
-              autoMap.set(category, created);
-            } catch { /* silently skip if DB not yet migrated */ }
+        // Auto-create missing auto alerts as active on first visit (viewers can't write, so skip)
+        if (canEdit) {
+          const ALL_AUTO: ('auto_invest' | 'auto_atento' | 'auto_aguardar')[] =
+            ['auto_invest', 'auto_atento', 'auto_aguardar'];
+          for (const category of ALL_AUTO) {
+            if (!autoMap.has(category)) {
+              try {
+                const created = await upsertAutoAlert({ ticker, companyId, companyName, category, isActive: true });
+                autoMap.set(category, created);
+              } catch { /* silently skip if DB not yet migrated */ }
+            }
           }
         }
         setAutoAlerts(autoMap);
@@ -69,7 +73,7 @@ export function PriceAlerts({ ticker, companyId, companyName, currency }: Props)
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [ticker]);
+  }, [ticker, canEdit, companyId, companyName]);
 
   const handleAutoToggle = async (category: 'auto_invest' | 'auto_atento' | 'auto_aguardar') => {
     const existing = autoAlerts.get(category);
@@ -174,9 +178,9 @@ export function PriceAlerts({ ticker, companyId, companyName, currency }: Props)
                     </span>
                     <button
                       onClick={() => handleAutoToggle(cat.key)}
-                      disabled={isToggling}
+                      disabled={isToggling || !canEdit}
                       aria-label={isActive ? "Desactivar" : "Activar"}
-                      className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-50 ${isActive ? 'bg-primary' : 'bg-muted'}`}
+                      className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${isActive ? 'bg-primary' : 'bg-muted'}`}
                     >
                       <span
                         className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-lg ring-0 transition-transform ${isActive ? 'translate-x-3' : 'translate-x-0'}`}
@@ -194,18 +198,20 @@ export function PriceAlerts({ ticker, companyId, companyName, currency }: Props)
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Manuais
               </p>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 w-5 p-0"
-                onClick={() => { setShowForm(v => !v); setTargetPrice(""); }}
-              >
-                {showForm ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-              </Button>
+              {canEdit && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0"
+                  onClick={() => { setShowForm(v => !v); setTargetPrice(""); }}
+                >
+                  {showForm ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                </Button>
+              )}
             </div>
 
             {/* Add form */}
-            {showForm && (
+            {showForm && canEdit && (
               <div className="px-4 py-3 border-b border-border bg-accent/10 flex flex-wrap items-end gap-2">
                 <div className="flex rounded-md overflow-hidden border border-border text-xs">
                   <button
@@ -244,7 +250,9 @@ export function PriceAlerts({ ticker, companyId, companyName, currency }: Props)
             {/* Alert list */}
             {manualAlerts.length === 0 ? (
               <div className="px-4 py-3 text-xs text-muted-foreground">
-                Sem alertas manuais. Clica em <Plus className="h-3 w-3 inline" /> para adicionar.
+                {canEdit
+                  ? <>Sem alertas manuais. Clica em <Plus className="h-3 w-3 inline" /> para adicionar.</>
+                  : "Sem alertas manuais."}
               </div>
             ) : (
               <div className="divide-y divide-border/60">
@@ -258,24 +266,26 @@ export function PriceAlerts({ ticker, companyId, companyName, currency }: Props)
                         {alert.is_active ? "Activo" : "Inactivo"}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => handleToggle(alert)}
-                        className="rounded p-1 text-muted-foreground hover:text-foreground transition-colors"
-                        title={alert.is_active ? "Desactivar" : "Activar"}
-                      >
-                        {alert.is_active
-                          ? <Bell className="h-3.5 w-3.5" />
-                          : <BellOff className="h-3.5 w-3.5" />}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(alert.id)}
-                        className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        title="Eliminar"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                    {canEdit && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => handleToggle(alert)}
+                          className="rounded p-1 text-muted-foreground hover:text-foreground transition-colors"
+                          title={alert.is_active ? "Desactivar" : "Activar"}
+                        >
+                          {alert.is_active
+                            ? <Bell className="h-3.5 w-3.5" />
+                            : <BellOff className="h-3.5 w-3.5" />}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(alert.id)}
+                          className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          title="Eliminar"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
                 {triggeredManual.map(alert => (
@@ -291,13 +301,15 @@ export function PriceAlerts({ ticker, companyId, companyName, currency }: Props)
                         </span>
                       )}
                     </div>
-                    <button
-                      onClick={() => handleDelete(alert.id)}
-                      className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      title="Eliminar"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => handleDelete(alert.id)}
+                        className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

@@ -4,6 +4,7 @@ import { Star, Trash2, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +30,7 @@ export default function Wishlist() {
   const [items, setItems] = useState<WishlistRow[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const { canEdit } = useAuth();
 
   useEffect(() => {
     loadWishlist();
@@ -89,33 +91,36 @@ export default function Wishlist() {
                     <p className="mt-0.5 text-sm text-foreground">{item.name}</p>
                     {item.exchange && <p className="text-xs text-muted-foreground">{item.exchange}</p>}
                   </div>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <button className="rounded p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Remover da wishlist?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Remover <strong>{item.name} ({item.ticker})</strong> da wishlist?
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleDelete(item)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                          Remover
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  {canEdit && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button className="rounded p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Remover da wishlist?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Remover <strong>{item.name} ({item.ticker})</strong> da wishlist?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleDelete(item)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            Remover
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </div>
                 <textarea
                   value={item.notes || ''}
                   onChange={(e) => handleUpdateNotes(item.id, e.target.value)}
                   placeholder="Notas..."
-                  className="w-full text-xs text-muted-foreground bg-transparent border-none resize-none outline-none placeholder:text-muted-foreground/50 min-h-[2rem]"
+                  disabled={!canEdit}
+                  className="w-full text-xs text-muted-foreground bg-transparent border-none resize-none outline-none placeholder:text-muted-foreground/50 min-h-[2rem] disabled:opacity-70 disabled:cursor-not-allowed"
                   rows={2}
                 />
                 <div className="flex items-center justify-between">
