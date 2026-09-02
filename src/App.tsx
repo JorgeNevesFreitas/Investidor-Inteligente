@@ -7,7 +7,6 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute, AdminRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index.tsx";
 import CompanyAnalysis from "./pages/CompanyAnalysis.tsx";
-import Portfolio from "./pages/Portfolio.tsx";
 import PortfolioV2 from "./pages/PortfolioV2.tsx";
 import Wishlist from "./pages/Wishlist.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -27,8 +26,7 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/company/:ticker" element={<ProtectedRoute><CompanyAnalysis /></ProtectedRoute>} />
-            <Route path="/portfolio" element={<ProtectedRoute><Portfolio /></ProtectedRoute>} />
-            <Route path="/portfolio-v2" element={<ProtectedRoute><PortfolioV2 /></ProtectedRoute>} />
+            <Route path="/portfolio" element={<ProtectedRoute><PortfolioV2 /></ProtectedRoute>} />
             <Route path="/wishlist" element={<ProtectedRoute><Wishlist /></ProtectedRoute>} />
             <Route path="/admin/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
             <Route path="*" element={<NotFound />} />

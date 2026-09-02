@@ -284,13 +284,52 @@ export async function addCashEntryWithMembers(
   }
 }
 
-export async function deleteTransaction(id: string): Promise<void> {
-  const { error } = await supabase.from('portfolio_transactions').delete().eq('id', id);
+// Deletes the portfolio_cash entry (if any) that was created alongside a buy/sell/dividend
+// when it was originally registered, so liquidity reverts correctly when the transaction or
+// dividend is removed. There's no FK linking portfolio_cash back to its transaction/dividend,
+// so the match is by the same fields the "Registar transação" dialog used to create it
+// (ticker, type, broker, currency, date, amount) — the same identifying fields a duplicate
+// entry would share, so at most one matching row is removed even if an exact duplicate exists.
+async function deleteMatchingCashEntry(match: {
+  ticker: string; type: 'buy' | 'sell' | 'dividend'; broker: string; currency: string; date: string; amount: number;
+}): Promise<void> {
+  const { data: candidates, error } = await supabase
+    .from('portfolio_cash')
+    .select('id, amount')
+    .eq('ticker', match.ticker)
+    .eq('type', match.type)
+    .eq('broker', match.broker)
+    .eq('currency', match.currency)
+    .eq('date', match.date);
+  if (error) throw error;
+
+  const cashEntry = (candidates || []).find(c => Math.abs(c.amount - match.amount) < 0.01);
+  if (!cashEntry) return;
+
+  const { error: deleteError } = await supabase.from('portfolio_cash').delete().eq('id', cashEntry.id);
+  if (deleteError) throw deleteError;
+}
+
+export async function deleteTransaction(tx: PortfolioTransaction): Promise<void> {
+  // buy debits liquidity (negative cash amount), sell credits it (positive) — see addTransaction.
+  const cashAmount = tx.type === 'buy'
+    ? -(tx.price_per_share * tx.quantity)
+    : tx.price_per_share * tx.quantity;
+  await deleteMatchingCashEntry({
+    ticker: tx.ticker, type: tx.type, broker: tx.broker, currency: tx.currency, date: tx.date, amount: cashAmount,
+  });
+
+  const { error } = await supabase.from('portfolio_transactions').delete().eq('id', tx.id);
   if (error) throw error;
 }
 
-export async function deleteDividend(id: string): Promise<void> {
-  const { error } = await supabase.from('portfolio_dividends').delete().eq('id', id);
+export async function deleteDividend(div: PortfolioDividend): Promise<void> {
+  const cashAmount = div.amount_per_share * div.quantity;
+  await deleteMatchingCashEntry({
+    ticker: div.ticker, type: 'dividend', broker: div.broker, currency: div.currency, date: div.date, amount: cashAmount,
+  });
+
+  const { error } = await supabase.from('portfolio_dividends').delete().eq('id', div.id);
   if (error) throw error;
 }
 

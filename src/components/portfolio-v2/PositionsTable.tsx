@@ -1,5 +1,5 @@
 import { useMemo, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, StickyNote } from "lucide-react";
+import { ChevronDown, ChevronRight, StickyNote, Trash2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Position, PortfolioMember, PortfolioCash, PortfolioCashMember,
@@ -19,11 +19,14 @@ interface PositionsTableProps {
   companyNotesMap: Map<string, string>;
   allTransactions: PortfolioTransaction[];
   allDividends: PortfolioDividend[];
+  onDeleteTransaction: (tx: PortfolioTransaction) => void;
+  onDeleteDividend: (div: PortfolioDividend) => void;
 }
 
 export function PositionsTable({
   positions, members, cashEntries, cashMemberEntries,
   companyByTicker, companyNotesMap, allTransactions, allDividends,
+  onDeleteTransaction, onDeleteDividend,
 }: PositionsTableProps) {
   const [activeTab, setActiveTab] = useState<string>("abertas");
   const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set());
@@ -112,9 +115,9 @@ export function PositionsTable({
       </div>
 
       {activeTab === "historico" ? (
-        <HistoryTable rows={historyRows} companyByTicker={companyByTicker} />
+        <HistoryTable rows={historyRows} companyByTicker={companyByTicker} onDelete={onDeleteTransaction} />
       ) : activeTab === "dividendos" ? (
-        <DividendsTable rows={dividendRows} companyByTicker={companyByTicker} />
+        <DividendsTable rows={dividendRows} companyByTicker={companyByTicker} onDelete={onDeleteDividend} />
       ) : filteredPositions.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 flex flex-col items-center justify-center text-center">
           <p className="text-sm font-medium text-foreground">
@@ -215,7 +218,7 @@ export function PositionsTable({
                     {expanded && (
                       <tr className="border-b border-border/30 bg-secondary/10">
                         <td colSpan={11} className="px-5 py-3">
-                          <PositionDrilldown position={pos} />
+                          <PositionDrilldown position={pos} onDeleteTransaction={onDeleteTransaction} onDeleteDividend={onDeleteDividend} />
                         </td>
                       </tr>
                     )}
@@ -230,7 +233,13 @@ export function PositionsTable({
   );
 }
 
-function PositionDrilldown({ position }: { position: Position }) {
+interface PositionDrilldownProps {
+  position: Position;
+  onDeleteTransaction: (tx: PortfolioTransaction) => void;
+  onDeleteDividend: (div: PortfolioDividend) => void;
+}
+
+function PositionDrilldown({ position, onDeleteTransaction, onDeleteDividend }: PositionDrilldownProps) {
   return (
     <div className="space-y-4">
       {position.transactions.length > 0 && (
@@ -240,7 +249,7 @@ function PositionDrilldown({ position }: { position: Position }) {
             <table className="w-full min-w-[500px]">
               <thead>
                 <tr className="bg-secondary/40 border-b border-border/60">
-                  {["Data", "Tipo", "Preço/ação", "Qtd.", "Total", "Moeda", "Broker"].map(h => (
+                  {["Data", "Tipo", "Preço/ação", "Qtd.", "Total", "Moeda", "Broker", ""].map(h => (
                     <th key={h} className="px-2.5 py-1.5 text-left text-[10px] font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -259,6 +268,13 @@ function PositionDrilldown({ position }: { position: Position }) {
                     <td className="px-2.5 py-1.5 font-mono text-[11px] text-right">{fmtCcy(tx.price_per_share * tx.quantity, tx.currency)}</td>
                     <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">{tx.currency}</td>
                     <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">{tx.broker}</td>
+                    <td className="px-2.5 py-1.5 text-center">
+                      <button
+                        onClick={() => onDeleteTransaction(tx)}
+                        className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -274,7 +290,7 @@ function PositionDrilldown({ position }: { position: Position }) {
             <table className="w-full min-w-[440px]">
               <thead>
                 <tr className="bg-secondary/40 border-b border-border/60">
-                  {["Data", "Valor/ação", "Qtd.", "Total recebido", "Moeda", "Broker"].map(h => (
+                  {["Data", "Valor/ação", "Qtd.", "Total recebido", "Moeda", "Broker", ""].map(h => (
                     <th key={h} className="px-2.5 py-1.5 text-left text-[10px] font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -290,6 +306,13 @@ function PositionDrilldown({ position }: { position: Position }) {
                     </td>
                     <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">{div.currency}</td>
                     <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">{div.broker}</td>
+                    <td className="px-2.5 py-1.5 text-center">
+                      <button
+                        onClick={() => onDeleteDividend(div)}
+                        className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -305,7 +328,13 @@ function PositionDrilldown({ position }: { position: Position }) {
   );
 }
 
-function HistoryTable({ rows, companyByTicker }: { rows: PortfolioTransaction[]; companyByTicker: Map<string, DBCompany> }) {
+interface HistoryTableProps {
+  rows: PortfolioTransaction[];
+  companyByTicker: Map<string, DBCompany>;
+  onDelete: (tx: PortfolioTransaction) => void;
+}
+
+function HistoryTable({ rows, companyByTicker, onDelete }: HistoryTableProps) {
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 flex flex-col items-center justify-center text-center">
@@ -318,7 +347,7 @@ function HistoryTable({ rows, companyByTicker }: { rows: PortfolioTransaction[];
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-secondary/30">
-            {["Data", "Empresa", "Tipo", "Preço/ação", "Qtd.", "Total", "Moeda", "Broker"].map(h => (
+            {["Data", "Empresa", "Tipo", "Preço/ação", "Qtd.", "Total", "Moeda", "Broker", ""].map(h => (
               <th key={h} className="px-3 py-2.5 text-left text-[11px] font-medium text-muted-foreground whitespace-nowrap">{h}</th>
             ))}
           </tr>
@@ -347,6 +376,13 @@ function HistoryTable({ rows, companyByTicker }: { rows: PortfolioTransaction[];
                 <td className="px-3 py-2.5 text-right font-mono text-xs">{fmtCcy(tx.price_per_share * tx.quantity, tx.currency)}</td>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">{tx.currency}</td>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">{tx.broker}</td>
+                <td className="px-3 py-2.5 text-center">
+                  <button
+                    onClick={() => onDelete(tx)}
+                    className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </td>
               </tr>
             );
           })}
@@ -356,7 +392,13 @@ function HistoryTable({ rows, companyByTicker }: { rows: PortfolioTransaction[];
   );
 }
 
-function DividendsTable({ rows, companyByTicker }: { rows: PortfolioDividend[]; companyByTicker: Map<string, DBCompany> }) {
+interface DividendsTableProps {
+  rows: PortfolioDividend[];
+  companyByTicker: Map<string, DBCompany>;
+  onDelete: (div: PortfolioDividend) => void;
+}
+
+function DividendsTable({ rows, companyByTicker, onDelete }: DividendsTableProps) {
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 flex flex-col items-center justify-center text-center">
@@ -369,7 +411,7 @@ function DividendsTable({ rows, companyByTicker }: { rows: PortfolioDividend[]; 
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-secondary/30">
-            {["Data", "Empresa", "Valor/ação", "Qtd.", "Total recebido", "Moeda", "Broker"].map(h => (
+            {["Data", "Empresa", "Valor/ação", "Qtd.", "Total recebido", "Moeda", "Broker", ""].map(h => (
               <th key={h} className="px-3 py-2.5 text-left text-[11px] font-medium text-muted-foreground whitespace-nowrap">{h}</th>
             ))}
           </tr>
@@ -395,6 +437,13 @@ function DividendsTable({ rows, companyByTicker }: { rows: PortfolioDividend[]; 
                 </td>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">{div.currency}</td>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">{div.broker}</td>
+                <td className="px-3 py-2.5 text-center">
+                  <button
+                    onClick={() => onDelete(div)}
+                    className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </td>
               </tr>
             );
           })}

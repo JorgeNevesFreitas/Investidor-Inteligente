@@ -7,8 +7,6 @@ import { Button } from "@/components/ui/button";
 const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/portfolio", label: "Portfolio", icon: Briefcase },
-  // TODO(portfolio-v2): temporary nav link for testing — remove once /portfolio-v2 replaces /portfolio or is dropped.
-  { path: "/portfolio-v2", label: "Portfolio v2", icon: Briefcase },
   { path: "/wishlist", label: "Wishlist", icon: Star },
 ];
 

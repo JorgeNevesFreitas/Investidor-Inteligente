@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Plus, Wallet } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import {
   PortfolioTransaction, PortfolioDividend, Position, PortfolioMember,
   PortfolioCash, PortfolioCashMember, PortfolioDailySnapshot,
   computePositions, fetchTransactions, fetchDividends,
   fetchMembers, fetchCash, fetchCashMembers, fetchDailySnapshots,
+  deleteTransaction, deleteDividend,
 } from "@/lib/portfolioService";
 import {
   computeMWR, computeAlignedReturns, computeTWR, computeVolatility,
@@ -19,8 +21,10 @@ import { SummaryCards, MemberValueBreakdown, TopPositionByValue, TopPositionByRe
 import { InvestorPanel, MemberPanelData } from "@/components/portfolio-v2/InvestorPanel";
 import { KpiPanel } from "@/components/portfolio-v2/KpiPanel";
 import { PositionsTable } from "@/components/portfolio-v2/PositionsTable";
+import { AddTransactionDialog, AddCashDialog } from "@/components/portfolio-v2/PortfolioDialogs";
 
 export default function PortfolioV2() {
+  const { toast } = useToast();
   const [transactions, setTransactions] = useState<PortfolioTransaction[]>([]);
   const [dividends, setDividends] = useState<PortfolioDividend[]>([]);
   const [companies, setCompanies] = useState<DBCompany[]>([]);
@@ -33,6 +37,8 @@ export default function PortfolioV2() {
   const [loading, setLoading] = useState(true);
   const [pricesLoading, setPricesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showAddCash, setShowAddCash] = useState(false);
 
   const loadAll = async () => {
     const [txns, divs] = await Promise.all([fetchTransactions(), fetchDividends()]);
@@ -85,6 +91,33 @@ export default function PortfolioV2() {
     };
     init();
   }, []);
+
+  // Refresh after a transaction/dividend/cash entry is added or removed — reload the
+  // underlying data and (for adds, which can introduce a new ticker) refresh prices.
+  const handleDataSaved = async () => {
+    const { txns, divs } = await loadAll();
+    await doFetchPrices(txns, divs);
+  };
+
+  const handleDeleteTransaction = async (tx: PortfolioTransaction) => {
+    try {
+      await deleteTransaction(tx);
+      await loadAll();
+      toast({ title: "Transação removida" });
+    } catch (e) {
+      toast({ title: "Erro", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    }
+  };
+
+  const handleDeleteDividend = async (div: PortfolioDividend) => {
+    try {
+      await deleteDividend(div);
+      await loadAll();
+      toast({ title: "Dividendo removido" });
+    } catch (e) {
+      toast({ title: "Erro", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    }
+  };
 
   // ── Derived state ────────────────────────────────────────────────────────
 
@@ -325,19 +358,24 @@ export default function PortfolioV2() {
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-foreground">Portfolio</h1>
-              <span className="rounded bg-primary/15 text-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">v2 · Beta</span>
-            </div>
+            <h1 className="text-xl font-bold text-foreground">Portfolio</h1>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               EUR/USD {eurUsd.toFixed(4)}
               {pricesLoading && <span className="ml-2 animate-pulse">· A atualizar preços…</span>}
             </p>
           </div>
-          <Button variant="outline" size="sm" className="h-8 px-2"
-            onClick={() => doFetchPrices(transactions, dividends)} disabled={pricesLoading} title="Refresh de preços">
-            {pricesLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-8 px-2"
+              onClick={() => doFetchPrices(transactions, dividends)} disabled={pricesLoading} title="Refresh de preços">
+              {pricesLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            </Button>
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowAddCash(true)}>
+              <Wallet className="h-3.5 w-3.5" />Registar liquidez
+            </Button>
+            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowAdd(true)}>
+              <Plus className="h-3.5 w-3.5" />Registar transação
+            </Button>
+          </div>
         </div>
 
         <SummaryCards
@@ -384,8 +422,26 @@ export default function PortfolioV2() {
           companyNotesMap={companyNotesMap}
           allTransactions={transactions}
           allDividends={dividends}
+          onDeleteTransaction={handleDeleteTransaction}
+          onDeleteDividend={handleDeleteDividend}
         />
       </div>
+
+      <AddTransactionDialog
+        open={showAdd}
+        onOpenChange={setShowAdd}
+        companies={companies}
+        members={members}
+        cashEntries={cashEntries}
+        cashMemberEntries={cashMemberEntries}
+        onSaved={handleDataSaved}
+      />
+      <AddCashDialog
+        open={showAddCash}
+        onOpenChange={setShowAddCash}
+        members={members}
+        onSaved={handleDataSaved}
+      />
     </AppLayout>
   );
 }
