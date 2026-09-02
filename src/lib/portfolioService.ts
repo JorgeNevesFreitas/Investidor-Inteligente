@@ -12,6 +12,7 @@ export interface PortfolioTransaction {
   fees: number;
   broker: string;
   notes: string | null;
+  is_gift: boolean;
   created_at: string;
 }
 
@@ -81,6 +82,9 @@ export interface Position {
   current_qty: number;
   wac: number;
   current_price: number | null;
+  // true when any buy that makes up the current holding was a gifted/free share —
+  // its cost-basis-derived % return is distorted, so it's excluded from % rankings.
+  is_gift: boolean;
 
   basis_eur: number;
   invested_eur: number;
@@ -138,6 +142,7 @@ export function computePositions(
 
     const currency = buys.length > 0 ? buys[buys.length - 1].currency : 'USD';
     const broker = buys.length > 0 ? buys[buys.length - 1].broker : null;
+    const is_gift = buys.some(t => t.is_gift);
 
     const total_buy_cost = buys.reduce((s, t) => s + t.price_per_share * t.quantity, 0);
     const wac = total_buy_qty > 0 ? total_buy_cost / total_buy_qty : 0;
@@ -174,6 +179,7 @@ export function computePositions(
       current_qty,
       wac,
       current_price,
+      is_gift,
       basis_eur,
       invested_eur,
       current_value_eur,

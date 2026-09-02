@@ -2,7 +2,36 @@ import { describe, it, expect } from "vitest";
 import {
   computeXIRR, computeTWR, computeVolatility, computeMaxDrawdown,
   computeBeta, computeCumulativeIndex, annualizeReturn, computeSharpe,
+  computeTopPerformers, computeSectorAllocation,
 } from "@/lib/portfolioAnalytics";
+import { Position } from "@/lib/portfolioService";
+import { DBCompany } from "@/lib/financialDataService";
+
+function makePosition(overrides: Partial<Position> & { ticker: string }): Position {
+  return {
+    company_name: overrides.ticker,
+    currency: "USD",
+    broker: "IBKR",
+    current_qty: 10,
+    wac: 100,
+    current_price: 100,
+    is_gift: false,
+    basis_eur: 1000,
+    invested_eur: 1000,
+    current_value_eur: 1000,
+    stock_return_eur: 0,
+    realized_stock_eur: 0,
+    unrealized_stock_eur: 0,
+    stock_return_pct: 0,
+    dividend_return_eur: 0,
+    dividend_return_pct: 0,
+    total_return_eur: 0,
+    total_return_pct: 0,
+    transactions: [],
+    dividends: [],
+    ...overrides,
+  };
+}
 
 describe("computeXIRR", () => {
   it("matches simple annualized interest for a single deposit + final value", () => {
@@ -94,5 +123,82 @@ describe("annualizeReturn / computeSharpe", () => {
 
   it("returns null when volatility is zero", () => {
     expect(computeSharpe(0.1, 0)).toBeNull();
+  });
+});
+
+describe("computeTopPerformers", () => {
+  it("ranks open, non-gift, non-zero-cost positions by total return %", () => {
+    const positions = [
+      makePosition({ ticker: "AAA", total_return_pct: 30, total_return_eur: 300 }),
+      makePosition({ ticker: "BBB", total_return_pct: -20, total_return_eur: -200 }),
+      makePosition({ ticker: "CCC", total_return_pct: 10, total_return_eur: 100 }),
+      makePosition({ ticker: "DDD", total_return_pct: -5, total_return_eur: -50 }),
+      makePosition({ ticker: "EEE", total_return_pct: 3, total_return_eur: 30 }),
+      makePosition({ ticker: "FFF", total_return_pct: 1, total_return_eur: 10 }),
+    ];
+    const { best, worst } = computeTopPerformers(positions, 3);
+    expect(best.map(p => p.ticker)).toEqual(["AAA", "CCC", "EEE"]);
+    expect(worst.map(p => p.ticker)).toEqual(["BBB", "DDD", "FFF"]);
+  });
+
+  it("excludes gifted and zero-cost positions from the ranking", () => {
+    const positions = [
+      makePosition({ ticker: "GIFT", is_gift: true, total_return_pct: 500, total_return_eur: 500 }),
+      makePosition({ ticker: "FREE", basis_eur: 0, total_return_pct: 999, total_return_eur: 0 }),
+      makePosition({ ticker: "PAID", total_return_pct: 10, total_return_eur: 100 }),
+    ];
+    const { best } = computeTopPerformers(positions);
+    expect(best.map(p => p.ticker)).toEqual(["PAID"]);
+  });
+
+  it("excludes closed positions (current_qty 0)", () => {
+    const positions = [
+      makePosition({ ticker: "CLOSED", current_qty: 0, total_return_pct: 50, total_return_eur: 50 }),
+      makePosition({ ticker: "OPEN", total_return_pct: 10, total_return_eur: 100 }),
+    ];
+    const { best } = computeTopPerformers(positions);
+    expect(best.map(p => p.ticker)).toEqual(["OPEN"]);
+  });
+
+  it("never lists the same position in both best and worst when there are few positions", () => {
+    const positions = [
+      makePosition({ ticker: "A", total_return_pct: 10 }),
+      makePosition({ ticker: "B", total_return_pct: 5 }),
+    ];
+    const { best, worst } = computeTopPerformers(positions, 3);
+    const bestTickers = new Set(best.map(p => p.ticker));
+    for (const w of worst) expect(bestTickers.has(w.ticker)).toBe(false);
+  });
+});
+
+describe("computeSectorAllocation", () => {
+  const companies: DBCompany[] = [
+    { id: "1", ticker: "AAA", sector: "Tech" } as DBCompany,
+    { id: "2", ticker: "BBB", sector: "Tech" } as DBCompany,
+    { id: "3", ticker: "CCC", sector: "Healthcare" } as DBCompany,
+  ];
+
+  it("groups open positions by sector and lists companies within each", () => {
+    const positions = [
+      makePosition({ ticker: "AAA", current_value_eur: 600 }),
+      makePosition({ ticker: "BBB", current_value_eur: 400 }),
+      makePosition({ ticker: "CCC", current_value_eur: 1000 }),
+    ];
+    const allocation = computeSectorAllocation(positions, companies);
+    expect(allocation).toHaveLength(2);
+
+    const healthcare = allocation.find(a => a.sector === "Healthcare")!;
+    expect(healthcare.valueEur).toBe(1000);
+    expect(healthcare.pct).toBeCloseTo(50, 6);
+    expect(healthcare.companies).toEqual([{ ticker: "CCC", name: "CCC", valueEur: 1000 }]);
+
+    const tech = allocation.find(a => a.sector === "Tech")!;
+    expect(tech.companies.map(c => c.ticker)).toEqual(["AAA", "BBB"]); // sorted by value desc
+  });
+
+  it("falls back to 'Outro' for companies with no sector on record", () => {
+    const positions = [makePosition({ ticker: "ZZZ", current_value_eur: 100 })];
+    const allocation = computeSectorAllocation(positions, []);
+    expect(allocation).toEqual([{ sector: "Outro", valueEur: 100, pct: 100, companies: [{ ticker: "ZZZ", name: "ZZZ", valueEur: 100 }] }]);
   });
 });

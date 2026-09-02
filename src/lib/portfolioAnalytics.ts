@@ -280,10 +280,17 @@ export function computeBeta(portfolioReturns: number[], benchmarkReturns: number
 
 // ── Sector allocation ───────────────────────────────────────────────────────────
 
+export interface SectorCompany {
+  ticker: string;
+  name: string;
+  valueEur: number;
+}
+
 export interface SectorAllocation {
   sector: string;
   valueEur: number;
   pct: number;
+  companies: SectorCompany[];
 }
 
 export function computeSectorAllocation(positions: Position[], companies: DBCompany[]): SectorAllocation[] {
@@ -293,13 +300,49 @@ export function computeSectorAllocation(positions: Position[], companies: DBComp
   const open = positions.filter(p => p.current_qty > 0);
   const totalEur = open.reduce((s, p) => s + p.current_value_eur, 0);
 
-  const map = new Map<string, number>();
+  const valueBySector = new Map<string, number>();
+  const companiesBySector = new Map<string, SectorCompany[]>();
   for (const p of open) {
     const sector = sectorByTicker.get(p.ticker.toUpperCase()) || "Outro";
-    map.set(sector, (map.get(sector) ?? 0) + p.current_value_eur);
+    valueBySector.set(sector, (valueBySector.get(sector) ?? 0) + p.current_value_eur);
+    const list = companiesBySector.get(sector) ?? [];
+    list.push({ ticker: p.ticker, name: p.company_name || p.ticker, valueEur: p.current_value_eur });
+    companiesBySector.set(sector, list);
   }
 
-  return Array.from(map.entries())
-    .map(([sector, valueEur]) => ({ sector, valueEur, pct: totalEur > 0 ? (valueEur / totalEur) * 100 : 0 }))
+  return Array.from(valueBySector.entries())
+    .map(([sector, valueEur]) => ({
+      sector,
+      valueEur,
+      pct: totalEur > 0 ? (valueEur / totalEur) * 100 : 0,
+      companies: (companiesBySector.get(sector) ?? []).sort((a, b) => b.valueEur - a.valueEur),
+    }))
     .sort((a, b) => b.valueEur - a.valueEur);
+}
+
+// ── Top performers ──────────────────────────────────────────────────────────────
+
+export interface RankedPosition {
+  ticker: string;
+  name: string;
+  returnPct: number;
+  returnEur: number;
+}
+
+/**
+ * Best/worst open positions by total return % (stock + dividends). Positions with a gifted
+ * share (see Position.is_gift) or zero cost basis are excluded — their % return is either
+ * undefined or not a meaningful measure of investment performance.
+ */
+export function computeTopPerformers(positions: Position[], count = 3): { best: RankedPosition[]; worst: RankedPosition[] } {
+  const ranked = positions
+    .filter(p => p.current_qty > 0 && !p.is_gift && p.basis_eur > 0)
+    .map(p => ({ ticker: p.ticker, name: p.company_name || p.ticker, returnPct: p.total_return_pct, returnEur: p.total_return_eur }))
+    .sort((a, b) => b.returnPct - a.returnPct);
+
+  const best = ranked.slice(0, count);
+  const bestTickers = new Set(best.map(p => p.ticker));
+  const worst = [...ranked].reverse().filter(p => !bestTickers.has(p.ticker)).slice(0, count);
+
+  return { best, worst };
 }

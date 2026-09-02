@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -34,6 +35,7 @@ interface AddForm {
   notes: string;
   broker: string;
   brokerCustom: string;
+  isGift: boolean;
 }
 
 const EMPTY_ADD_FORM: AddForm = {
@@ -45,6 +47,7 @@ const EMPTY_ADD_FORM: AddForm = {
   notes: "",
   broker: "IBKR",
   brokerCustom: "",
+  isGift: false,
 };
 
 interface AddTransactionDialogProps {
@@ -120,8 +123,10 @@ export function AddTransactionDialog({
           type: addType, date: form.date,
           price_per_share: price, quantity,
           currency: form.currency, fees: 0, notes: form.notes || null, broker: effectiveBroker,
+          is_gift: addType === "buy" && form.isGift,
         });
-        if (isCashCurrency && members.length > 0) {
+        // A gifted/free buy has totalAmount 0 — nothing was actually paid, so no cash entry to record.
+        if (totalAmount > 0 && isCashCurrency && members.length > 0) {
           const cashAmount = addType === "buy" ? -totalAmount : totalAmount;
           const props = addType === "sell"
             ? getMemberTickerProportions(cashEntries, cashMemberEntries, members, ticker)
@@ -166,12 +171,28 @@ export function AddTransactionDialog({
                         : "bg-primary/15 text-primary border-primary/30"
                       : "bg-secondary text-muted-foreground border-transparent hover:bg-accent"
                   }`}
-                  onClick={() => setAddType(t)}>
+                  onClick={() => {
+                    setAddType(t);
+                    if (t !== "buy") setForm(p => ({ ...p, isGift: false }));
+                  }}>
                   {t === "buy" ? "Compra" : t === "sell" ? "Venda" : "Dividendo"}
                 </button>
               ))}
             </div>
           </div>
+
+          {addType === "buy" && (
+            <div className="flex items-center justify-between rounded-md border border-border/60 bg-secondary/20 px-2.5 py-2">
+              <label htmlFor="portfolio-v2-is-gift" className="text-xs text-foreground">
+                Ação oferecida/gratuita
+              </label>
+              <Switch
+                id="portfolio-v2-is-gift"
+                checked={form.isGift}
+                onCheckedChange={checked => setForm(p => ({ ...p, isGift: checked, price: checked ? "0" : p.price }))}
+              />
+            </div>
+          )}
 
           <div>
             <label className="text-xs text-muted-foreground">Ticker</label>
@@ -214,7 +235,7 @@ export function AddTransactionDialog({
                 {addType === "dividend" ? "Valor por ação" : "Preço por ação"}
               </label>
               <Input type="number" step="0.0001" min="0" className="mt-1 h-8 text-xs font-mono"
-                placeholder="0.00" value={form.price}
+                placeholder="0.00" value={form.price} disabled={form.isGift}
                 onChange={e => setForm(p => ({ ...p, price: e.target.value }))} />
             </div>
             <div>

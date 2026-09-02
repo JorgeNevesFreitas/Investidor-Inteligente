@@ -13,15 +13,19 @@ import {
 import {
   computeMWR, computeAlignedReturns, computeTWR, computeVolatility,
   computeCumulativeIndex, computeMaxDrawdown, annualizeReturn, computeSharpe,
-  computeBeta, computeSectorAllocation,
+  computeBeta, computeSectorAllocation, computeTopPerformers,
 } from "@/lib/portfolioAnalytics";
 import { fetchMarketPrice, MarketPriceResult } from "@/lib/marketPriceService";
 import { listCompanies, DBCompany } from "@/lib/financialDataService";
+import { fetchActiveAlertsForTickers, PriceAlert } from "@/lib/priceAlertService";
 import { SummaryCards, MemberValueBreakdown, TopPositionByValue, TopPositionByReturn, DividendByCompany } from "@/components/portfolio-v2/SummaryCards";
 import { InvestorPanel, MemberPanelData } from "@/components/portfolio-v2/InvestorPanel";
 import { KpiPanel } from "@/components/portfolio-v2/KpiPanel";
 import { PositionsTable } from "@/components/portfolio-v2/PositionsTable";
 import { AddTransactionDialog, AddCashDialog } from "@/components/portfolio-v2/PortfolioDialogs";
+import { TopPerformers } from "@/components/portfolio-v2/TopPerformers";
+import { RecentActivity, ActivityItem } from "@/components/portfolio-v2/RecentActivity";
+import { ActiveAlerts, AlertRow } from "@/components/portfolio-v2/ActiveAlerts";
 
 export default function PortfolioV2() {
   const { toast } = useToast();
@@ -39,6 +43,7 @@ export default function PortfolioV2() {
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showAddCash, setShowAddCash] = useState(false);
+  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
 
   const loadAll = async () => {
     const [txns, divs] = await Promise.all([fetchTransactions(), fetchDividends()]);
@@ -139,6 +144,48 @@ export default function PortfolioV2() {
   );
 
   const openPositions = useMemo(() => positions.filter(p => p.current_qty > 0), [positions]);
+
+  useEffect(() => {
+    const tickers = openPositions.map(p => p.ticker);
+    if (tickers.length === 0) { setAlerts([]); return; }
+    fetchActiveAlertsForTickers(tickers).then(setAlerts).catch(() => {});
+  }, [openPositions]);
+
+  const topPerformers = useMemo(() => computeTopPerformers(positions), [positions]);
+
+  const recentActivity: ActivityItem[] = useMemo(() => {
+    const txItems = transactions.map(t => ({
+      id: t.id, date: t.date, type: t.type, ticker: t.ticker,
+      name: companyByTicker.get(t.ticker.toUpperCase())?.name || t.ticker,
+      quantity: t.quantity, amount: t.price_per_share * t.quantity, currency: t.currency,
+      created_at: t.created_at,
+    }));
+    const divItems = dividends.map(d => ({
+      id: d.id, date: d.date, type: "dividend" as const, ticker: d.ticker,
+      name: companyByTicker.get(d.ticker.toUpperCase())?.name || d.ticker,
+      quantity: d.quantity, amount: d.amount_per_share * d.quantity, currency: d.currency,
+      created_at: d.created_at,
+    }));
+    return [...txItems, ...divItems]
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 5);
+  }, [transactions, dividends, companyByTicker]);
+
+  const activeAlerts: AlertRow[] = useMemo(() =>
+    alerts
+      .filter((a): a is PriceAlert & { alert_type: "above" | "below"; target_price: number } =>
+        (a.alert_type === "above" || a.alert_type === "below") && a.target_price !== null)
+      .map(a => ({
+        id: a.id,
+        ticker: a.ticker,
+        name: companyByTicker.get(a.ticker.toUpperCase())?.name || a.ticker,
+        alertType: a.alert_type,
+        targetPrice: a.target_price,
+        currentPrice: prices.get(a.ticker.toUpperCase()) ?? null,
+        currency: a.currency,
+      })),
+    [alerts, companyByTicker, prices]
+  );
 
   const totals = useMemo(() => {
     const basisEur = positions.reduce((s, p) => s + p.basis_eur, 0);
@@ -401,16 +448,21 @@ export default function PortfolioV2() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <InvestorPanel members={memberPanelData} />
-          <KpiPanel
-            mwr={mwr}
-            twr={twr}
-            volatility={volatility}
-            maxDrawdown={maxDrawdown}
-            sharpe={sharpe}
-            beta={beta}
-            snapshotCount={snapshots.length}
-            sectorAllocation={sectorAllocation}
-          />
+          <div className="space-y-4">
+            <KpiPanel
+              mwr={mwr}
+              twr={twr}
+              volatility={volatility}
+              maxDrawdown={maxDrawdown}
+              sharpe={sharpe}
+              beta={beta}
+              snapshotCount={snapshots.length}
+              sectorAllocation={sectorAllocation}
+            />
+            <TopPerformers best={topPerformers.best} worst={topPerformers.worst} />
+            <RecentActivity items={recentActivity} />
+            <ActiveAlerts alerts={activeAlerts} />
+          </div>
         </div>
 
         <PositionsTable

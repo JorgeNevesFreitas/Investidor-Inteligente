@@ -31,6 +31,23 @@ export async function fetchAlertsForTicker(ticker: string): Promise<PriceAlert[]
   }));
 }
 
+export async function fetchActiveAlertsForTickers(tickers: string[]): Promise<PriceAlert[]> {
+  if (tickers.length === 0) return [];
+  const { data, error } = await table()
+    .select("*")
+    .in("ticker", [...new Set(tickers.map(t => t.toUpperCase()))])
+    .eq("is_active", true)
+    .eq("triggered", false)
+    .not("alert_type", "is", null)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((a: PriceAlert) => ({
+    ...a,
+    alert_category: a.alert_category ?? 'manual',
+  }));
+}
+
 export async function createPriceAlert(opts: {
   ticker: string;
   companyId: string | null;

@@ -186,6 +186,7 @@ export function PositionsTable({
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="font-mono text-[11px] text-primary">{pos.ticker}</span>
                           {closed && <span className="rounded px-1 text-[9px] bg-secondary text-muted-foreground">Encerrada</span>}
+                          {pos.is_gift && <span className="rounded px-1 text-[9px] bg-purple-500/15 text-purple-500">Oferta</span>}
                         </div>
                       </td>
                       <td className="px-3 py-2.5">
