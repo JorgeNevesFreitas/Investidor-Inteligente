@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Loader2, UserPlus, Trash2, ShieldCheck, User, Eye } from 'lucide-react';
+import { Loader2, UserPlus, Trash2, Pencil, ShieldCheck, User, Eye } from 'lucide-react';
 import { AppLayout } from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -12,10 +13,23 @@ interface ManagedUser {
   id: string;
   email: string;
   role: string;
+  must_change_password: boolean;
   created_at: string;
 }
 
 type NewRole = 'admin' | 'investor' | 'viewer';
+
+function normalizeRole(role: string): NewRole {
+  if (role === 'admin') return 'admin';
+  if (role === 'viewer') return 'viewer';
+  return 'investor';
+}
+
+const ROLE_OPTIONS: { value: NewRole; label: string; desc: string }[] = [
+  { value: 'admin', label: 'Administrador', desc: 'Acesso total, incluindo gestão de utilizadores' },
+  { value: 'investor', label: 'Investidor', desc: 'Pode registar transações, liquidez, dividendos, notas, alertas e importar dados. Sem acesso à gestão de utilizadores' },
+  { value: 'viewer', label: 'Utilizador', desc: 'Apenas consulta — vê todos os dados mas não pode registar, editar ou apagar nada' },
+];
 
 function roleBadge(role: string) {
   if (role === 'admin') return { icon: ShieldCheck, label: 'Administrador', className: 'bg-primary/15 text-primary' };
@@ -38,6 +52,13 @@ export default function UserManagement() {
   const [adding, setAdding] = useState(false);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
+  const [editEmail, setEditEmail] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [editRole, setEditRole] = useState<NewRole>('investor');
+  const [editMustChange, setEditMustChange] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -71,6 +92,38 @@ export default function UserManagement() {
     setNewEmail('');
     setNewPassword('');
     setNewRole('investor');
+    await loadUsers();
+  };
+
+  const openEditDialog = (u: ManagedUser) => {
+    setEditingUser(u);
+    setEditEmail(u.email);
+    setEditPassword('');
+    setEditRole(normalizeRole(u.role));
+    setEditMustChange(u.must_change_password);
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser || !editEmail.trim()) return;
+    setSaving(true);
+    const { data, error } = await supabase.functions.invoke('admin-users', {
+      body: {
+        action: 'update',
+        userId: editingUser.id,
+        email: editEmail.trim(),
+        ...(editPassword.trim() ? { password: editPassword.trim() } : {}),
+        role: editRole,
+        mustChangePassword: editMustChange,
+      },
+    });
+    setSaving(false);
+    if (error || data?.error) {
+      toast({ title: 'Erro ao atualizar utilizador', description: error?.message || data?.error, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Utilizador atualizado' });
+    setEditingUser(null);
     await loadUsers();
   };
 
@@ -137,19 +190,29 @@ export default function UserManagement() {
                       {new Date(u.created_at).toLocaleDateString('pt-PT')}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {u.id !== currentUser?.id && (
+                      <div className="flex items-center justify-end gap-1">
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => handleDelete(u.id, u.email)}
-                          disabled={deletingId === u.id}
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                          onClick={() => openEditDialog(u)}
                         >
-                          {deletingId === u.id
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <Trash2 className="h-3.5 w-3.5" />}
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                      )}
+                        {u.id !== currentUser?.id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => handleDelete(u.id, u.email)}
+                            disabled={deletingId === u.id}
+                          >
+                            {deletingId === u.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -201,11 +264,7 @@ export default function UserManagement() {
             <div>
               <label className="text-xs text-muted-foreground block mb-2">Tipo de acesso</label>
               <div className="space-y-2">
-                {([
-                  { value: 'admin' as NewRole, label: 'Administrador', desc: 'Acesso total, incluindo gestão de utilizadores' },
-                  { value: 'investor' as NewRole, label: 'Investidor', desc: 'Pode registar transações, liquidez, dividendos, notas, alertas e importar dados. Sem acesso à gestão de utilizadores' },
-                  { value: 'viewer' as NewRole, label: 'Utilizador', desc: 'Apenas consulta — vê todos os dados mas não pode registar, editar ou apagar nada' },
-                ] as const).map(opt => (
+                {ROLE_OPTIONS.map(opt => (
                   <label key={opt.value} className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
                     newRole === opt.value ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/30'
                   }`}>
@@ -232,6 +291,93 @@ export default function UserManagement() {
               </Button>
               <Button type="submit" size="sm" className="text-xs h-8" disabled={adding}>
                 {adding ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />A criar...</> : 'Criar utilizador'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingUser} onOpenChange={open => { if (!open) setEditingUser(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">Editar utilizador</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpdate} className="space-y-4 py-1">
+            <div>
+              <label className="text-xs text-muted-foreground">Email</label>
+              <Input
+                type="email"
+                value={editEmail}
+                onChange={e => setEditEmail(e.target.value)}
+                className="mt-1 h-8 text-xs"
+                placeholder="nome@exemplo.com"
+                autoFocus
+                required
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Nova password</label>
+              <Input
+                type="text"
+                value={editPassword}
+                onChange={e => setEditPassword(e.target.value)}
+                className="mt-1 h-8 text-xs font-mono"
+                placeholder="Deixar vazio para manter a atual"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Deixe em branco para não alterar a password.
+              </p>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-2">Tipo de acesso</label>
+              <div className="space-y-2">
+                {ROLE_OPTIONS.map(opt => {
+                  const isSelfDemotion = editingUser?.id === currentUser?.id && opt.value !== 'admin';
+                  return (
+                    <label key={opt.value} className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      isSelfDemotion ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    } ${
+                      editRole === opt.value ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/30'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="edit-role"
+                        value={opt.value}
+                        checked={editRole === opt.value}
+                        onChange={() => setEditRole(opt.value)}
+                        disabled={isSelfDemotion}
+                        className="mt-0.5 accent-primary"
+                      />
+                      <div>
+                        <div className="text-xs font-medium text-foreground">{opt.label}</div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">{opt.desc}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              {editingUser?.id === currentUser?.id && (
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  Não pode remover o próprio acesso de administrador.
+                </p>
+              )}
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div>
+                <div className="text-xs font-medium text-foreground">Forçar alteração de password</div>
+                <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                  Exige que o utilizador defina uma nova password no próximo login.
+                </div>
+              </div>
+              <Switch checked={editMustChange} onCheckedChange={setEditMustChange} />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="outline" size="sm" className="text-xs h-8"
+                onClick={() => setEditingUser(null)}>
+                Cancelar
+              </Button>
+              <Button type="submit" size="sm" className="text-xs h-8" disabled={saving}>
+                {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />A guardar...</> : 'Guardar alterações'}
               </Button>
             </div>
           </form>

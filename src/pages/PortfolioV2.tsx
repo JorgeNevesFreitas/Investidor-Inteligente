@@ -169,7 +169,7 @@ export default function PortfolioV2() {
       created_at: d.created_at,
     }));
     return [...txItems, ...divItems]
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at))
       .slice(0, 5);
   }, [transactions, dividends, companyByTicker]);
 

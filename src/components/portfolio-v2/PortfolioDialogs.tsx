@@ -81,9 +81,12 @@ export function AddTransactionDialog({
       : null;
 
   const handleAddSubmit = async () => {
+    // A gifted/free buy has no price to enter — the field is locked to 0 and shouldn't be
+    // required. Every other case still requires a price exactly as before.
+    const isGiftBuy = addType === "buy" && form.isGift;
     const ticker = form.ticker.trim().toUpperCase();
     const effectiveBroker = getEffectiveBroker(form.broker, form.brokerCustom);
-    if (!ticker || !form.date || !form.price || !form.quantity) {
+    if (!ticker || !form.date || (!isGiftBuy && !form.price) || !form.quantity) {
       toast({ title: "Campos obrigatórios", description: "Ticker, data, preço e quantidade são obrigatórios.", variant: "destructive" });
       return;
     }
@@ -91,7 +94,7 @@ export function AddTransactionDialog({
       toast({ title: "Broker obrigatório", description: "Seleciona ou escreve o nome do broker.", variant: "destructive" });
       return;
     }
-    const price = parseFloat(form.price);
+    const price = isGiftBuy ? 0 : parseFloat(form.price);
     const quantity = parseFloat(form.quantity);
     if (isNaN(price) || price < 0 || isNaN(quantity) || quantity <= 0) {
       toast({ title: "Valores inválidos", description: "Preço e quantidade devem ser números positivos.", variant: "destructive" });
@@ -123,7 +126,7 @@ export function AddTransactionDialog({
           type: addType, date: form.date,
           price_per_share: price, quantity,
           currency: form.currency, fees: 0, notes: form.notes || null, broker: effectiveBroker,
-          is_gift: addType === "buy" && form.isGift,
+          is_gift: isGiftBuy,
         });
         // A gifted/free buy has totalAmount 0 — nothing was actually paid, so no cash entry to record.
         if (totalAmount > 0 && isCashCurrency && members.length > 0) {
@@ -143,6 +146,18 @@ export function AddTransactionDialog({
       onOpenChange(false);
       await onSaved();
     } catch (e) {
+      // Detailed diagnostic logging — Supabase/Postgrest errors carry message/code/details/hint
+      // beyond what `e.message` alone shows (e.g. a missing column or a constraint violation).
+      console.error("[PortfolioDialogs] Erro ao registar transação — objeto completo:", e);
+      if (e && typeof e === "object") {
+        const err = e as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown };
+        console.error("[PortfolioDialogs] Erro ao registar transação — detalhe:", {
+          message: err.message,
+          code: err.code,
+          details: err.details,
+          hint: err.hint,
+        });
+      }
       toast({ title: "Erro", description: e instanceof Error ? e.message : "Erro desconhecido", variant: "destructive" });
     } finally {
       setSubmitting(false);

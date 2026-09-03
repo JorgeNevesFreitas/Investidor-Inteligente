@@ -50,6 +50,7 @@ Deno.serve(async (req) => {
         id: u.id,
         email: u.email ?? '',
         role: (u.user_metadata?.role as string) ?? 'user',
+        must_change_password: !!u.user_metadata?.must_change_password,
         created_at: u.created_at,
       }));
       return json({ users });
@@ -66,6 +67,32 @@ Deno.serve(async (req) => {
         email_confirm: true,
         user_metadata: { role, must_change_password: true },
       });
+      if (error) return json({ error: error.message }, 500);
+      return json({ user: data.user });
+    }
+
+    if (action === 'update') {
+      const { userId, email, password, role, mustChangePassword } = params as {
+        userId: string; email?: string; password?: string; role?: string; mustChangePassword?: boolean;
+      };
+      if (!userId) return json({ error: 'userId é obrigatório' }, 400);
+      if (userId === caller.id && role && role !== 'admin') {
+        return json({ error: 'Não é possível remover o próprio acesso de administrador' }, 400);
+      }
+
+      const { data: existing, error: getError } = await adminClient.auth.admin.getUserById(userId);
+      if (getError || !existing.user) return json({ error: getError?.message ?? 'Utilizador não encontrado' }, 404);
+
+      const updatePayload: Record<string, unknown> = {};
+      if (email) updatePayload.email = email;
+      if (password) updatePayload.password = password;
+
+      const user_metadata = { ...existing.user.user_metadata };
+      if (role) user_metadata.role = role;
+      if (typeof mustChangePassword === 'boolean') user_metadata.must_change_password = mustChangePassword;
+      updatePayload.user_metadata = user_metadata;
+
+      const { data, error } = await adminClient.auth.admin.updateUserById(userId, updatePayload);
       if (error) return json({ error: error.message }, 500);
       return json({ user: data.user });
     }
