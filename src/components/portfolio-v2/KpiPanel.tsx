@@ -13,14 +13,14 @@ interface KpiPanelProps {
   sectorAllocation: SectorAllocation[];
 }
 
-function KpiTile({ label, value, hint, tone }: { label: string; value: string | null; hint?: string; tone?: "positive" | "negative" | "neutral" }) {
+function KpiTile({ label, value, hint, tone, tooltip }: { label: string; value: string | null; hint?: string; tone?: "positive" | "negative" | "neutral"; tooltip?: string }) {
   const colorClass = value === null
     ? "text-muted-foreground text-xs"
     : tone === "positive" ? "text-positive"
     : tone === "negative" ? "text-negative"
     : "text-foreground";
-  return (
-    <div className="rounded-lg border border-border/50 bg-secondary/20 p-3">
+  const tile = (
+    <div className="rounded-lg border border-border/50 bg-secondary/20 p-3 cursor-default">
       <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
       <p className={`font-mono text-sm font-bold ${colorClass}`}>
         {value ?? "Dados insuficientes"}
@@ -28,7 +28,25 @@ function KpiTile({ label, value, hint, tone }: { label: string; value: string | 
       {hint && <p className="text-[10px] text-muted-foreground mt-0.5">{hint}</p>}
     </div>
   );
+  if (!tooltip) return tile;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{tile}</TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[260px] p-3">
+        <p className="text-[11px] leading-snug">{tooltip}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
+
+const KPI_TOOLTIPS = {
+  mwr: "Money-Weighted Return: mede a rentabilidade real da carteira tendo em conta o timing e o valor de cada depósito e levantamento. Representa a taxa de retorno anualizada do capital investido.",
+  twr: "Time-Weighted Return: mede a performance da carteira eliminando o efeito dos depósitos e levantamentos. Permite comparar a performance com benchmarks de mercado.",
+  volatility: "Desvio padrão anualizado dos retornos diários. Mede o risco da carteira — quanto maior, mais oscila o valor.",
+  maxDrawdown: "Maior queda percentual do valor da carteira desde um máximo até um mínimo subsequente. Indica o pior cenário de perda que um investidor teria sofrido.",
+  beta: "Mede a sensibilidade da carteira face ao S&P 500. Beta > 1 significa mais volátil que o mercado, Beta < 1 significa mais estável.",
+  sharpe: "Mede o retorno ajustado ao risco. Calcula quantas unidades de retorno se obtêm por cada unidade de risco assumido. Acima de 1 é considerado bom.",
+} as const;
 
 const SECTOR_COLORS = [
   "bg-blue-500", "bg-teal-500", "bg-purple-500", "bg-amber-500",
@@ -50,14 +68,16 @@ export function KpiPanel({ mwr, twr, volatility, maxDrawdown, sharpe, beta, snap
         )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-        <KpiTile label="MWR (anualizado)" value={mwr !== null ? fmtPct2(mwr * 100) : null} tone={tonePct(mwr)} />
-        <KpiTile label="TWR" value={twr !== null ? fmtPct2(twr * 100) : null} tone={tonePct(twr)} />
-        <KpiTile label="Volatilidade" value={volatility !== null ? `${(volatility * 100).toFixed(1)}%` : null} />
-        <KpiTile label="Max Drawdown" value={maxDrawdown !== null ? fmtPct2(maxDrawdown * 100) : null} tone={maxDrawdown !== null ? "negative" : undefined} />
-        <KpiTile label="Beta (vs. S&P 500)" value={beta !== null ? beta.toFixed(2) : null} />
-        <KpiTile label="Sharpe Ratio" value={sharpe !== null ? sharpe.toFixed(2) : null} />
-      </div>
+      <TooltipProvider delayDuration={300}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          <KpiTile label="MWR (anualizado)" value={mwr !== null ? fmtPct2(mwr * 100) : null} tone={tonePct(mwr)} tooltip={KPI_TOOLTIPS.mwr} />
+          <KpiTile label="TWR" value={twr !== null ? fmtPct2(twr * 100) : null} tone={tonePct(twr)} tooltip={KPI_TOOLTIPS.twr} />
+          <KpiTile label="Volatilidade" value={volatility !== null ? `${(volatility * 100).toFixed(1)}%` : null} tooltip={KPI_TOOLTIPS.volatility} />
+          <KpiTile label="Max Drawdown" value={maxDrawdown !== null ? fmtPct2(maxDrawdown * 100) : null} tone={maxDrawdown !== null ? "negative" : undefined} tooltip={KPI_TOOLTIPS.maxDrawdown} />
+          <KpiTile label="Beta (vs. S&P 500)" value={beta !== null ? beta.toFixed(2) : null} tooltip={KPI_TOOLTIPS.beta} />
+          <KpiTile label="Sharpe Ratio" value={sharpe !== null ? sharpe.toFixed(2) : null} tooltip={KPI_TOOLTIPS.sharpe} />
+        </div>
+      </TooltipProvider>
 
       <div className="mt-4 pt-3 border-t border-border/40">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Alocação por Setor</p>
