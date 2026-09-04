@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { Star, Trash2, ArrowRight } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Star, Trash2, ArrowRight, Loader2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { importFromSEC, importFromStockAnalysis } from "@/lib/financialDataService";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,8 +30,10 @@ interface WishlistRow {
 export default function Wishlist() {
   const [items, setItems] = useState<WishlistRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [convertingIds, setConvertingIds] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const { canEdit } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadWishlist();
@@ -63,6 +66,29 @@ export default function Wishlist() {
     setItems(prev => prev.map(i => i.id === id ? { ...i, notes } : i));
   };
 
+  const handleConvert = async (item: WishlistRow) => {
+    setConvertingIds(prev => new Set(prev).add(item.id));
+
+    let result = await importFromSEC(item.ticker);
+    if (!result.success) {
+      result = await importFromStockAnalysis({ ticker: item.ticker });
+    }
+
+    if (result.success) {
+      await supabase.from('wishlist').delete().eq('id', item.id);
+      setItems(prev => prev.filter(i => i.id !== item.id));
+      toast({ title: "Convertida para Análise", description: `${item.name} (${item.ticker})` });
+      navigate(`/company/${item.ticker}`);
+    } else {
+      toast({ title: "Erro na conversão", description: result.error || "Falha na importação", variant: "destructive" });
+      setConvertingIds(prev => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -92,27 +118,42 @@ export default function Wishlist() {
                     {item.exchange && <p className="text-xs text-muted-foreground">{item.exchange}</p>}
                   </div>
                   {canEdit && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <button className="rounded p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Remover da wishlist?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Remover <strong>{item.name} ({item.ticker})</strong> da wishlist?
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleDelete(item)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                            Remover
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                    <div className="flex items-center gap-1">
+                      <button
+                        title="Converter para Análise Completa"
+                        onClick={() => handleConvert(item)}
+                        disabled={convertingIds.has(item.id)}
+                        className="rounded p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {convertingIds.has(item.id)
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <ArrowRight className="h-4 w-4" />}
+                      </button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button
+                            disabled={convertingIds.has(item.id)}
+                            className="rounded p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remover da wishlist?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Remover <strong>{item.name} ({item.ticker})</strong> da wishlist?
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDelete(item)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                              Remover
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
                   )}
                 </div>
                 <textarea
