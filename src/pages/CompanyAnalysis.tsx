@@ -56,6 +56,8 @@ function isUSCompany(dbCompany: DBCompany | null, mockCompany: Company | undefin
   return !!mockCompany; // mock data is US only
 }
 
+const MONTH_ABBR = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
 type ImportSource = 'sec' | 'stockanalysis';
 
 // Determine the default import source:
@@ -655,6 +657,11 @@ export default function CompanyAnalysis() {
           {dataSource && (
             <div className="flex items-center gap-1 text-muted-foreground">
               <span>Fonte: {dataSource === "SEC_XBRL" ? "SEC / EDGAR" : "StockAnalysis"}</span>
+            </div>
+          )}
+          {dbCompany?.fiscal_year_end_month && (
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <span>Ano fiscal: {MONTH_ABBR[dbCompany.fiscal_year_end_month - 1]}</span>
             </div>
           )}
           {lastImported && (
