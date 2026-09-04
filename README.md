@@ -40,9 +40,10 @@ A aplicação tem acesso restrito: requer login para todas as páginas.
 
 * autenticação feita via Supabase Auth (email + password);
 * sem registo público — só administradores criam novas contas;
-* dois tipos de acesso: `admin` e `user`;
+* três tipos de acesso: `admin`, `investor` e `viewer`;
 * `admin`: acesso total, incluindo gestão de utilizadores;
-* `user`: acesso a todas as funcionalidades, exceto gestão de utilizadores;
+* `investor`: acesso a todas as funcionalidades (criar, editar, eliminar, importar dados), exceto gestão de utilizadores;
+* `viewer`: acesso apenas de leitura — vê tudo, mas não pode criar, editar, eliminar nem importar dados;
 * novas contas são criadas com password temporária e flag `must_change_password`;
 * no primeiro login, o utilizador é obrigado a definir uma password nova antes de continuar;
 * qualquer rota não autenticada deve redirecionar para `/login`;
@@ -54,8 +55,9 @@ Página exclusiva para administradores, com:
 
 * listagem de utilizadores (email, tipo de acesso, data de criação);
 * criar utilizador (email + password temporária + tipo de acesso);
+* editar utilizador (email, password, tipo de acesso, obrigar troca de password no próximo login);
 * remover utilizador, com confirmação;
-* um administrador não pode remover a própria conta.
+* um administrador não pode remover a própria conta nem retirar a própria permissão de administrador.
 
 ---
 
@@ -228,27 +230,24 @@ Os rácios devem ser apresentados em tabelas e gráficos.
 
 ## Valuation
 
-A aplicação deve calcular o valor intrínseco da empresa através de Discounted Cash Flow.
+A aplicação calcula o valor intrínseco da empresa por Discounted Cash Flow, através de dois métodos, cada um na sua própria aba na página da empresa.
 
-### Método padrão
+### Valuation Buffett (método principal)
 
-* Free Cash Flow
+Cenário único, ao estilo Warren Buffett:
 
-### Método alternativo
+* base de cálculo: Owner Earnings (Lucro Líquido + D&A − Capex − variação do Working Capital), com fallback automático para o Free Cash Flow quando faltam dados para calcular Owner Earnings;
+* crescimento perpétuo (Gordon Growth) na perpetuidade, em vez de múltiplo terminal;
+* taxa de crescimento dos 10 anos de projeção independente da taxa de crescimento perpétuo;
+* taxa de desconto pensada para refletir a yield das obrigações do tesouro (o risco do negócio é filtrado na escolha da empresa, não na taxa).
 
-* EPS
+Inputs: taxa de crescimento (anos de projeção), taxa de crescimento perpétuo, taxa de desconto, margem de segurança.
 
-O utilizador deve poder escolher o método, mas o Free Cash Flow deve ser o padrão.
+### Valuation SC (arquivo)
 
-### Inputs do valuation
+Modelo "Sven Carlin", com 3 cenários ponderados por probabilidade (normal / otimista / pessimista), por Free Cash Flow ou EPS. Mantido como aba de arquivo/comparação — não é o método ativo por defeito.
 
-* taxa de desconto;
-* taxa de crescimento anos 1 a 5;
-* taxa de crescimento anos 6 a 10;
-* taxa de crescimento terminal;
-* margem de segurança.
-
-### Outputs do valuation
+### Outputs do valuation (ambos os métodos)
 
 * valor intrínseco total / market cap intrínseco;
 * valor intrínseco por ação;
@@ -260,9 +259,8 @@ O utilizador deve poder escolher o método, mas o Free Cash Flow deve ser o padr
 
 ### Persistência do valuation
 
-* os inputs e o resultado do DCF ficam guardados por empresa (1 valuation ativa por ticker);
-* ao reabrir a empresa, o valuation guardado é carregado automaticamente, sem necessidade de recalcular;
-* guardar também o preço da ação no momento do cálculo;
+* os inputs e o resultado de cada método ficam guardados por empresa e por tipo de valuation (1 registo ativo por ticker + método);
+* ao reabrir a empresa, os valuations guardados são carregados automaticamente, sem necessidade de recalcular;
 * recalcular e atualizar o valuation guardado sempre que o utilizador alterar inputs ou recalcular.
 
 ---
@@ -345,6 +343,7 @@ Deve mostrar:
 * upside;
 * decisão;
 * principais rácios;
+* mês de fecho do ano fiscal, com alerta visual quando os dados guardados podem estar desatualizados face ao calendário fiscal da empresa;
 * data da última atualização;
 * botão para abrir análise;
 * opção de eliminar empresa com ícone de caixote do lixo;
@@ -360,6 +359,7 @@ Cada empresa deve ter uma página de relatório com:
 
 * dados gerais da empresa;
 * fonte de dados;
+* mês de fecho do ano fiscal, quando conhecido;
 * última atualização;
 * Income Statement;
 * Balance Sheet;
@@ -460,7 +460,14 @@ Registo de movimentos de liquidez por broker:
 * adicionar/eliminar transação, dividendo e movimento de liquidez, com confirmação;
 * recalcular totais e rentabilidades após qualquer alteração;
 * mostrar total da carteira e rentabilidade agregada, com decomposição por ticker, por broker e por membro;
-* indicador discreto (ícone âmbar) junto ao nome da empresa, nas posições com notas escritas — em hover mostra o início das notas.
+* indicador discreto (ícone âmbar) junto ao nome da empresa, nas posições com notas escritas — em hover mostra o início das notas;
+* transação de compra pode ser marcada como oferta/prenda (preço bloqueado a 0, não conta como saída de liquidez).
+
+### Painel de análise (KPIs e atividade)
+
+* snapshot diário do valor da carteira (total e por posição), usado para calcular as métricas abaixo e para comparação com um benchmark de mercado;
+* painel de KPIs: MWR, TWR, volatilidade, máximo drawdown, Sharpe e beta, além da alocação por setor;
+* alertas de preço ativos, atividade recente (compras, vendas, dividendos) e melhores/piores posições (top performers), num painel lateral.
 
 ---
 
@@ -490,6 +497,7 @@ Funcionalidades:
 * cik
 * stockanalysis_url
 * primary_data_source
+* fiscal_year_end_month
 * notes
 * notes_updated_at
 * created_at
@@ -530,25 +538,16 @@ Funcionalidades:
 * created_at
 * updated_at
 
-### Valuation
+### ValuationResult
 
 * id
-* company_id
-* valuation_method
-* discount_rate
-* growth_rate_years_1_5
-* growth_rate_years_6_10
-* terminal_growth_rate
-* margin_of_safety
-* intrinsic_market_cap
-* intrinsic_value_per_share
-* intrinsic_value_with_margin
-* current_price
-* upside
-* expected_irr
-* decision
+* ticker
+* valuation_type: sc / buffett
+* inputs (JSON)
+* result (JSON) — inclui, entre outros, intrinsic_value_per_share, intrinsic_with_margin, current_price, upside, irr e decision
 * created_at
 * updated_at
+* chave única: (ticker, valuation_type)
 
 ### WishlistItem
 
@@ -576,7 +575,9 @@ Funcionalidades:
 * created_at
 * updated_at
 
-### DCFValuation
+### DCFValuation (legado)
+
+Tabela anterior ao `ValuationResult`, mantida apenas para leitura/histórico — já não recebe novos registos.
 
 * ticker (chave única)
 * company_id
@@ -615,6 +616,7 @@ Funcionalidades:
 * fees
 * broker
 * notes
+* is_gift (compra sem custo real, ex.: oferta/prenda — não conta como saída de liquidez)
 * created_at
 
 ### PortfolioDividend
@@ -657,6 +659,21 @@ Funcionalidades:
 * amount
 * percentage
 
+### PortfolioDailySnapshot
+
+Snapshot diário do valor da carteira, gerado automaticamente (cron), usado para calcular TWR, MWR, volatilidade, máximo drawdown, Sharpe e beta, e para comparar com um benchmark de mercado.
+
+* id
+* snapshot_date (único)
+* total_value_eur
+* total_invested_eur
+* total_cash_eur
+* eur_usd_rate
+* benchmark_ticker (default `^GSPC`)
+* benchmark_close
+* member_values (JSON, valor/investido/liquidez por membro)
+* created_at
+
 ---
 
 ## Regras críticas
@@ -669,6 +686,7 @@ Funcionalidades:
 * Valuation não pode apresentar `Infinity%`, `NaN` ou preço `0.00` falso.
 * Eliminações devem pedir confirmação.
 * Acesso à aplicação requer autenticação; não deve haver registo público.
-* Apenas administradores podem criar ou remover utilizadores.
+* Apenas administradores podem criar, editar ou remover utilizadores.
+* Utilizadores com acesso `viewer` não podem criar, editar, eliminar nem importar dados — apenas visualizar.
 * Alertas de preço (manuais e automáticos) devem ser verificados periodicamente e disparar email.
 * Não recriar a aplicação de raiz quando forem pedidas melhorias: alterar apenas os módulos necessários.
