@@ -12,6 +12,7 @@ import {
 } from "@/lib/portfolioService";
 import { getMemberCashProportions, getMemberTickerProportions } from "@/lib/portfolioAnalytics";
 import { DBCompany } from "@/lib/financialDataService";
+import { restoreFollowingAfterBuy, WATCH_STATUS_LABELS } from "@/lib/watchStatusService";
 import { fmtCcy } from "./shared";
 
 // Ported (unchanged behavior) from the old Portfolio.tsx "Registar transação" / "Registar liquidez" dialogs.
@@ -103,6 +104,8 @@ export function AddTransactionDialog({
     const company = companies.find(c => c.ticker.toUpperCase() === ticker);
     setSubmitting(true);
     try {
+      // Só cabe um toast de cada vez (TOAST_LIMIT = 1), por isso esta nota segue no toast de sucesso.
+      let watchStatusNote = "";
       const totalAmount = price * quantity;
       const isCashCurrency = form.currency === "EUR" || form.currency === "USD";
       const cashCurrency = form.currency as "EUR" | "USD";
@@ -128,6 +131,14 @@ export function AddTransactionDialog({
           currency: form.currency, fees: 0, notes: form.notes || null, broker: effectiveBroker,
           is_gift: isGiftBuy,
         });
+        if (addType === "buy") {
+          const outcome = await restoreFollowingAfterBuy(company?.ticker ?? ticker);
+          if (outcome === "restored") {
+            watchStatusNote = ` ${ticker} voltou a "${WATCH_STATUS_LABELS.following}".`;
+          } else if (outcome === "failed") {
+            watchStatusNote = ` Aviso: não foi possível atualizar o estado de acompanhamento de ${ticker}.`;
+          }
+        }
         // A gifted/free buy has totalAmount 0 — nothing was actually paid, so no cash entry to record.
         if (totalAmount > 0 && isCashCurrency && members.length > 0) {
           const cashAmount = addType === "buy" ? -totalAmount : totalAmount;
@@ -142,7 +153,7 @@ export function AddTransactionDialog({
       }
 
       const label = addType === "dividend" ? "Dividendo" : addType === "buy" ? "Compra" : "Venda";
-      toast({ title: "Guardado", description: `${label} de ${ticker} registada.` });
+      toast({ title: "Guardado", description: `${label} de ${ticker} registada.${watchStatusNote}` });
       onOpenChange(false);
       await onSaved();
     } catch (e) {

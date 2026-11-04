@@ -4,8 +4,15 @@ import { MOCK_COMPANIES } from "@/lib/mockData";
 import { DCFResult, formatCurrency, formatPercent } from "@/lib/calculations";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AppLayout } from "@/components/AppLayout";
-import { TrendingUp, TrendingDown, Trash2, StickyNote } from "lucide-react";
+import { TrendingUp, TrendingDown, Trash2, StickyNote, Eye, EyeOff } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { listCompanies, fetchLatestFiscalYears, DBCompany } from "@/lib/financialDataService";
 import { fetchLatestReportsByTicker, ReportSummary } from "@/lib/reportService";
 import { deleteCompany } from "@/lib/companyDeleteService";
@@ -13,6 +20,7 @@ import { getAllDCFValuations } from "@/lib/dcfService";
 import { getAllBuffettValuations } from "@/lib/valuationService";
 import { fetchQuoteData, fetchMarketPrice, QuoteData } from "@/lib/marketPriceService";
 import { fetchTransactions } from "@/lib/portfolioService";
+import { changeWatchStatus, computeOpenPositionTickers, WatchStatus, WATCH_STATUS_LABELS } from "@/lib/watchStatusService";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,6 +37,23 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const PRICE_POLL_MS = 30_000;
+const WATCH_FILTER_KEY = 'dashboard-watch-filter';
+
+type WatchFilter = WatchStatus | 'all';
+
+const WATCH_FILTER_OPTIONS: { value: WatchFilter; label: string }[] = [
+  { value: 'following', label: WATCH_STATUS_LABELS.following },
+  { value: 'discarded', label: 'Descartadas' },
+  { value: 'all', label: 'Todas' },
+];
+
+function loadWatchFilter(): WatchFilter {
+  try {
+    const saved = localStorage.getItem(WATCH_FILTER_KEY);
+    if (saved === 'following' || saved === 'discarded' || saved === 'all') return saved;
+  } catch { /* localStorage indisponível: usa o filtro por defeito */ }
+  return 'following';
+}
 
 function computeLiveStatus(
   price: number,
@@ -50,6 +75,7 @@ export default function Dashboard() {
   const [reportMap, setReportMap] = useState<Map<string, ReportSummary>>(new Map());
   const [latestFiscalYearMap, setLatestFiscalYearMap] = useState<Map<string, number>>(new Map());
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [watchFilter, setWatchFilter] = useState<WatchFilter>(loadWatchFilter);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevStatusesRef = useRef<Map<string, string>>(new Map());
   const [openPositionTickers, setOpenPositionTickers] = useState<Set<string>>(new Set());
@@ -82,25 +108,30 @@ export default function Dashboard() {
     fetchLatestFiscalYears().then(setLatestFiscalYearMap).catch(() => {});
     getAllBuffettValuations().then(setBuffettValuationsRemote);
     fetchTransactions().then(txns => {
-      const qtyMap = new Map<string, number>();
-      for (const tx of txns) {
-        const key = tx.ticker.toUpperCase();
-        const cur = qtyMap.get(key) ?? 0;
-        qtyMap.set(key, tx.type === 'buy' ? cur + tx.quantity : cur - tx.quantity);
-      }
-      const open = new Set<string>();
-      for (const [ticker, qty] of qtyMap) if (qty > 0) open.add(ticker);
-      setOpenPositionTickers(open);
+      setOpenPositionTickers(computeOpenPositionTickers(txns));
     }).catch(() => {});
   }, []);
 
-  // Once companies list is ready, fetch full quotes for all tickers
+  // Tickers visíveis no filtro de acompanhamento. Os cartões de estado precisam de preços de
+  // todas estas empresas, por isso o filtro por estado não reduz esta lista.
+  const visibleTickersKey = useMemo(() => {
+    const knownTickers = new Set(dbCompanies.map(c => c.ticker));
+    const db = dbCompanies
+      .filter(c => watchFilter === 'all' || (c.watch_status ?? 'following') === watchFilter)
+      .map(c => c.ticker);
+    const mock = watchFilter === 'discarded'
+      ? []
+      : MOCK_COMPANIES.filter(c => !knownTickers.has(c.ticker)).map(c => c.ticker);
+    return JSON.stringify([...db, ...mock]);
+  }, [dbCompanies, watchFilter]);
+
+  // Fetch full quotes for the visible tickers
   useEffect(() => {
-    const tickers = allTickers();
+    const tickers: string[] = JSON.parse(visibleTickersKey);
     if (tickers.length === 0) return;
 
     Promise.all(tickers.map(t => fetchQuoteData(t).then(q => [t, q] as const))).then(pairs => {
-      setQuoteMap(new Map(pairs));
+      setQuoteMap(prev => new Map([...prev, ...pairs]));
       // Seed live prices from quotes so table isn't empty while polling starts
       setLivePrice(prev => {
         const next = new Map(prev);
@@ -112,8 +143,7 @@ export default function Dashboard() {
     // Start 30s price polling
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(() => {
-      const ts = allTickers();
-      Promise.all(ts.map(t => fetchMarketPrice(t).then(r => [t, r.price] as const))).then(pairs => {
+      Promise.all(tickers.map(t => fetchMarketPrice(t).then(r => [t, r.price] as const))).then(pairs => {
         setLivePrice(prev => {
           const next = new Map(prev);
           for (const [t, p] of pairs) if (p > 0) next.set(t, p);
@@ -123,7 +153,7 @@ export default function Dashboard() {
     }, PRICE_POLL_MS);
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [dbCompanies]); // re-run when companies change
+  }, [visibleTickersKey]); // re-run when the visible companies change
 
   const getResult = (ticker: string): DCFResult | null => {
     try {
@@ -179,11 +209,23 @@ export default function Dashboard() {
 
   const dbTickers = new Set(dbCompanies.map(c => c.ticker));
 
-  function allTickers(): string[] {
-    const db = dbCompanies.map(c => c.ticker);
-    const mock = MOCK_COMPANIES.filter(c => !dbTickers.has(c.ticker)).map(c => c.ticker);
-    return [...db, ...mock];
-  }
+  const handleWatchFilterChange = (filter: WatchFilter) => {
+    setWatchFilter(filter);
+    try {
+      localStorage.setItem(WATCH_FILTER_KEY, filter);
+    } catch { /* localStorage indisponível: o filtro vale só para esta sessão */ }
+  };
+
+  const handleWatchStatusChange = async (company: DBCompany, status: WatchStatus) => {
+    if ((company.watch_status ?? 'following') === status) return;
+    const result = await changeWatchStatus(company, status);
+    if (result.success === false) {
+      toast({ title: result.title, description: result.description, variant: "destructive" });
+      return;
+    }
+    setDbCompanies(prev => prev.map(c => c.id === company.id ? { ...c, watch_status: status } : c));
+    toast({ title: "Estado atualizado", description: `${company.ticker}: ${WATCH_STATUS_LABELS[status]}` });
+  };
 
   const handleDelete = async (company: DBCompany) => {
     const result = await deleteCompany(company.id);
@@ -214,6 +256,7 @@ export default function Dashboard() {
         isDB: true,
         quoteLoading: !q,
         notes: c.notes ?? null,
+        watchStatus: (c.watch_status ?? 'following') as WatchStatus,
       };
     }),
     ...MOCK_COMPANIES.filter(c => !dbTickers.has(c.ticker)).map(c => {
@@ -234,6 +277,7 @@ export default function Dashboard() {
         isDB: false,
         quoteLoading: !q,
         notes: null as string | null,
+        watchStatus: 'following' as WatchStatus,
       };
     }),
   ];
@@ -257,9 +301,17 @@ export default function Dashboard() {
   };
 
   const toggleFilter = (f: string) => setActiveFilter(prev => prev === f ? null : f);
+  const watchCounts: Record<WatchFilter, number> = {
+    following: analyses.filter(a => a.watchStatus === 'following').length,
+    discarded: analyses.filter(a => a.watchStatus === 'discarded').length,
+    all: analyses.length,
+  };
+  const watchFilteredAnalyses = watchFilter === 'all'
+    ? analyses
+    : analyses.filter(a => a.watchStatus === watchFilter);
   const filteredAnalyses = activeFilter
-    ? analyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === activeFilter)
-    : analyses;
+    ? watchFilteredAnalyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === activeFilter)
+    : watchFilteredAnalyses;
 
   const Dash = () => <span className="text-muted-foreground">—</span>;
   const Loading = () => <span className="text-muted-foreground animate-pulse">···</span>;
@@ -319,29 +371,43 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <button onClick={() => setActiveFilter(null)} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === null ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Empresas Analisadas</p>
-            <p className="mt-1 text-2xl font-bold font-mono text-foreground">{analyses.length}</p>
+            <p className="mt-1 text-2xl font-bold font-mono text-foreground">{watchFilteredAnalyses.length}</p>
           </button>
           <button onClick={() => toggleFilter("invest")} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === "invest" ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Para Investir</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Preço abaixo do valor c/ margem</p>
             <p className="mt-1 text-2xl font-bold font-mono text-positive">
-              {analyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === "invest").length}
+              {watchFilteredAnalyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === "invest").length}
             </p>
           </button>
           <button onClick={() => toggleFilter("watch")} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === "watch" ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Atento</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Preço entre margem e valor intrínseco</p>
             <p className="mt-1 text-2xl font-bold font-mono text-neutral-warn">
-              {analyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === "watch").length}
+              {watchFilteredAnalyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === "watch").length}
             </p>
           </button>
           <button onClick={() => toggleFilter("wait")} className={`rounded-lg border p-4 text-left transition-colors ${activeFilter === "wait" ? "border-primary/50 bg-accent/30" : "border-border bg-card"} hover:bg-accent/20`}>
             <p className="text-xs text-muted-foreground">Aguardar</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Preço acima do valor intrínseco</p>
             <p className="mt-1 text-2xl font-bold font-mono text-negative">
-              {analyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === "wait").length}
+              {watchFilteredAnalyses.filter(a => (liveStatuses.get(a.ticker) ?? a.result?.status) === "wait").length}
             </p>
           </button>
+        </div>
+
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filtro de acompanhamento">
+          {WATCH_FILTER_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={watchFilter === value}
+              onClick={() => handleWatchFilterChange(value)}
+              className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${watchFilter === value ? "border-primary/50 bg-accent/30 text-foreground" : "border-border bg-card text-muted-foreground"} hover:bg-accent/20`}
+            >
+              {label} <span className="ml-1 font-mono">{watchCounts[value]}</span>
+            </button>
+          ))}
         </div>
 
         <div className="rounded-lg border border-border bg-card overflow-x-auto overflow-y-auto max-h-[70vh]">
@@ -370,7 +436,7 @@ export default function Dashboard() {
             </thead>
             <tbody>
               {filteredAnalyses.map((a) => (
-                <tr key={a.ticker} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
+                <tr key={a.ticker} className={`border-b border-border/50 hover:bg-accent/30 transition-colors${watchFilter === 'all' && a.watchStatus === 'discarded' ? " opacity-60" : ""}`}>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-1.5">
                       {(() => {
@@ -467,27 +533,53 @@ export default function Dashboard() {
                   </td>
                   <td className="px-3 py-2.5">
                     {a.dbCompany && canEdit && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <button className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Eliminar empresa?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Tens a certeza que queres eliminar <strong>{a.name} ({a.ticker})</strong>? Todos os dados financeiros e histórico de importação serão removidos permanentemente.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDelete(a.dbCompany!)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                              Eliminar
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <div className="flex items-center gap-1">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              title={`Estado: ${WATCH_STATUS_LABELS[a.watchStatus]}`}
+                              aria-label={`Alterar estado de ${a.ticker}`}
+                              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                            >
+                              {a.watchStatus === 'discarded' ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuRadioGroup
+                              value={a.watchStatus}
+                              onValueChange={(value) => handleWatchStatusChange(a.dbCompany!, value as WatchStatus)}
+                            >
+                              {(Object.keys(WATCH_STATUS_LABELS) as WatchStatus[]).map(status => (
+                                <DropdownMenuRadioItem key={status} value={status} className="text-xs">
+                                  {WATCH_STATUS_LABELS[status]}
+                                </DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <button className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Eliminar empresa?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Tens a certeza que queres eliminar <strong>{a.name} ({a.ticker})</strong>? Todos os dados financeiros e histórico de importação serão removidos permanentemente.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDelete(a.dbCompany!)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                Eliminar
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     )}
                   </td>
                 </tr>

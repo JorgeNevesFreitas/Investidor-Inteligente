@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ArrowLeft, ExternalLink, RefreshCw, Link2, Loader2,
   Database, Clock, AlertCircle, CheckCircle2, Calendar,
@@ -36,6 +37,7 @@ import {
   getSignedUrl,
   docxToHtml,
 } from "@/lib/reportService";
+import { changeWatchStatus, WatchStatus, WATCH_STATUS_LABELS } from "@/lib/watchStatusService";
 import { PriceAlerts } from "@/components/PriceAlerts";
 import { ValuationSC } from "@/components/ValuationSC";
 import { ValuationBuffett } from "@/components/ValuationBuffett";
@@ -143,6 +145,9 @@ export default function CompanyAnalysis() {
   const [notesSaving, setNotesSaving] = useState(false);
   const notesSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Watch status
+  const [savingWatchStatus, setSavingWatchStatus] = useState(false);
+
   const mockCompany = MOCK_COMPANIES.find(c => c.ticker === ticker);
 
   const openLinkEdit = (field: "investing" | "ir", current: string) => {
@@ -178,6 +183,19 @@ export default function CompanyAnalysis() {
     } finally {
       setSavingLink(false);
     }
+  };
+
+  const handleWatchStatusChange = async (status: WatchStatus) => {
+    if (!dbCompany) return;
+    setSavingWatchStatus(true);
+    const result = await changeWatchStatus(dbCompany, status);
+    setSavingWatchStatus(false);
+    if (result.success === false) {
+      toast({ title: result.title, description: result.description, variant: "destructive" });
+      return;
+    }
+    setDbCompany(prev => prev ? { ...prev, watch_status: status } : prev);
+    toast({ title: "Estado atualizado", description: `${dbCompany.ticker}: ${WATCH_STATUS_LABELS[status]}` });
   };
 
   // Load DB data
@@ -545,6 +563,22 @@ export default function CompanyAnalysis() {
               <h1 className="text-xl font-bold text-foreground">{companyName}</h1>
               <span className="rounded bg-secondary px-2 py-0.5 font-mono text-xs text-primary">{companyTicker}</span>
               {companyExchange && <span className="text-xs text-muted-foreground">{companyExchange}</span>}
+              {dbCompany && (
+                <Select
+                  value={dbCompany.watch_status ?? "following"}
+                  onValueChange={(value) => handleWatchStatusChange(value as WatchStatus)}
+                  disabled={!canEdit || savingWatchStatus}
+                >
+                  <SelectTrigger aria-label="Estado de acompanhamento" className="h-7 w-[120px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(WATCH_STATUS_LABELS) as WatchStatus[]).map(status => (
+                      <SelectItem key={status} value={status} className="text-xs">{WATCH_STATUS_LABELS[status]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
               {companySector && `${companySector} · `}{companyCurrency}

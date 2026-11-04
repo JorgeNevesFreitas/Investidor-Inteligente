@@ -115,6 +115,7 @@ export type Database = {
           stockanalysis_url: string | null
           ticker: string
           updated_at: string
+          watch_status: string
         }
         Insert: {
           cik?: string | null
@@ -139,6 +140,7 @@ export type Database = {
           stockanalysis_url?: string | null
           ticker: string
           updated_at?: string
+          watch_status?: string
         }
         Update: {
           cik?: string | null
@@ -163,6 +165,7 @@ export type Database = {
           stockanalysis_url?: string | null
           ticker?: string
           updated_at?: string
+          watch_status?: string
         }
         Relationships: []
       }

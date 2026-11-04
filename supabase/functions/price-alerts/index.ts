@@ -195,6 +195,18 @@ Deno.serve(async (req) => {
 
   if (valErr) console.error('dcf_valuations fetch error:', valErr);
 
+  // Empresas descartadas não são verificadas nesta secção (os alertas manuais abaixo mantêm-se)
+  const { data: discardedCompanies, error: discardedErr } = await supabase
+    .from('companies')
+    .select('ticker')
+    .eq('watch_status', 'discarded');
+
+  if (discardedErr) console.error('discarded companies fetch error:', discardedErr);
+
+  const discardedTickers = new Set<string>(
+    (discardedCompanies ?? []).map((c: { ticker: string }) => c.ticker.toUpperCase())
+  );
+
   const { data: history } = await supabase
     .from('price_alert_history')
     .select('ticker, last_status');
@@ -204,6 +216,8 @@ Deno.serve(async (req) => {
   );
 
   for (const v of (valuations ?? [])) {
+    if (discardedTickers.has(v.ticker.toUpperCase())) continue;
+
     const result = v.result as Record<string, number> | null;
     if (!result?.intrinsicValuePerShare || !result?.intrinsicWithMargin) continue;
     if (result.intrinsicValuePerShare <= 0) continue;

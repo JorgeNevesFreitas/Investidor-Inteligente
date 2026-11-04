@@ -25,6 +25,7 @@ export interface DBCompany {
   last_refreshed_at: string | null;
   notes: string | null;
   notes_updated_at: string | null;
+  watch_status?: 'following' | 'discarded';
 }
 
 export interface DBFinancialYear {
