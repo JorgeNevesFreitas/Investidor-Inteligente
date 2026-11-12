@@ -38,7 +38,7 @@ export interface PortfolioMember {
 export interface PortfolioCash {
   id: string;
   date: string;
-  type: 'deposit' | 'withdrawal' | 'dividend' | 'buy' | 'sell';
+  type: 'deposit' | 'withdrawal' | 'dividend' | 'buy' | 'sell' | 'fx_adjustment';
   ticker: string | null;
   amount: number;
   currency: 'EUR' | 'USD';

@@ -54,7 +54,12 @@ interface SummaryCardsProps {
   stockReturnEur: number;
   stockReturnPct: number;
   fxNeutralEur: number;
-  fxEffectEur: number;
+  /** @deprecated kept for compatibility — the card now uses fxAdjustmentsEur / fxEffectEstimateEur. */
+  fxEffectEur?: number;
+  /** Registered FX effect (sum of 'fx_adjustment' cash rows, EUR) — included in the total. */
+  fxAdjustmentsEur: number;
+  /** App-side FX estimate — NOT included in the total. */
+  fxEffectEstimateEur: number;
   top5ByReturn: TopPositionByReturn[];
 
   totalDividendsEur: number;
@@ -81,7 +86,7 @@ export function SummaryCards({
   totalPortfolioEur, totalDepositedEur, portfolioGainLossEur, portfolioGainLossPct, memberValueBreakdown,
   totalCashEur, cashByBroker, eurUsd,
   investedCurrentEur, investedCostEur, top5ByValue,
-  stockReturnEur, stockReturnPct, fxNeutralEur, fxEffectEur, top5ByReturn,
+  stockReturnEur, stockReturnPct, fxNeutralEur, fxAdjustmentsEur, fxEffectEstimateEur, top5ByReturn,
   totalDividendsEur, dividendsByCompany,
 }: SummaryCardsProps) {
   return (
@@ -143,8 +148,50 @@ export function SummaryCards({
               </p>
             </CardShell>
           </TooltipTrigger>
-          {cashByBroker.length > 0 && (
-            <TooltipContent side="bottom" align="start" className="p-3" sideOffset={4}>
+          <TooltipContent side="bottom" align="start" className="p-3 min-w-[260px]" sideOffset={4}>
+            <p className="text-[10px] text-muted-foreground mb-1.5">Composição da carteira</p>
+            <div className="space-y-1 text-[11px]">
+              <div className="flex items-center justify-between gap-4">
+                <span>Investido (preços atuais)</span>
+                <span className="font-mono">{fmtEur(investedCurrentEur)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span>Caixa</span>
+                <span className="font-mono">{fmtEur(totalCashEur)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4 pl-2 text-muted-foreground">
+                <span>inclui efeito câmbio</span>
+                <span className="font-mono">{fxAdjustmentsEur >= 0 ? "+" : ""}{fmtEur(fxAdjustmentsEur)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span>Dividendos recebidos (acumulado)</span>
+                <span className="font-mono">{fmtEur(totalDividendsEur)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4 pt-1 border-t border-border/40 font-semibold">
+                <span>Investido + Caixa</span>
+                <span className="font-mono">{fmtEur(investedCurrentEur + totalCashEur)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span>Valor total da carteira</span>
+                <span className="font-mono">{fmtEur(totalPortfolioEur)}</span>
+              </div>
+              {Math.abs(investedCurrentEur + totalCashEur - totalPortfolioEur) >= 1 && (
+                <div className="text-amber-500">
+                  <div className="flex items-center justify-between gap-4">
+                    <span>Diferença</span>
+                    <span className="font-mono">
+                      {investedCurrentEur + totalCashEur - totalPortfolioEur >= 0 ? "+" : ""}
+                      {fmtEur(investedCurrentEur + totalCashEur - totalPortfolioEur)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] max-w-[240px] leading-snug">
+                    Pode indicar movimentos de caixa em falta ou um ajuste cambial por registar.
+                  </p>
+                </div>
+              )}
+            </div>
+            {cashByBroker.length > 0 && (
+            <div className="mt-2.5 pt-2 border-t border-border/40">
               <p className="text-[10px] text-muted-foreground mb-1.5">Por broker</p>
               <div className="space-y-1.5">
                 {cashByBroker.map(b => (
@@ -166,8 +213,9 @@ export function SummaryCards({
                   </div>
                 ))}
               </div>
-            </TooltipContent>
-          )}
+            </div>
+            )}
+          </TooltipContent>
         </Tooltip>
 
         {/* 3 — Valor Investido */}
@@ -214,8 +262,8 @@ export function SummaryCards({
               <div className="mt-2.5 pt-2.5 border-t border-border/50">
                 <div className="flex justify-between items-center">
                   <span className="text-[11px] text-muted-foreground">Efeito câmbio</span>
-                  <span className={`font-mono text-[11px] font-medium ${fxEffectEur >= 0 ? "text-positive" : "text-negative"}`}>
-                    {fxEffectEur >= 0 ? "+" : ""}{fmtEur(fxEffectEur)}
+                  <span className={`font-mono text-[11px] font-medium ${fxAdjustmentsEur >= 0 ? "text-positive" : "text-negative"}`}>
+                    {fxAdjustmentsEur >= 0 ? "+" : ""}{fmtEur(fxAdjustmentsEur)}
                   </span>
                 </div>
               </div>
@@ -223,6 +271,18 @@ export function SummaryCards({
           </TooltipTrigger>
           <TooltipContent side="bottom" align="start" className="p-3" sideOffset={4}>
             <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px] gap-4">
+                <span className="text-muted-foreground">Efeito câmbio registado</span>
+                <span className={`font-mono font-medium ${fxAdjustmentsEur >= 0 ? "text-positive" : "text-negative"}`}>
+                  {fxAdjustmentsEur >= 0 ? "+" : ""}{fmtEur(fxAdjustmentsEur)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] gap-4 text-muted-foreground">
+                <span>Estimativa da app (não incluída no total)</span>
+                <span className="font-mono">
+                  {fxEffectEstimateEur >= 0 ? "+" : ""}{fmtEur(fxEffectEstimateEur)}
+                </span>
+              </div>
               <div className="flex items-center justify-between text-[11px] gap-4">
                 <span className="text-muted-foreground">Sem efeito câmbio</span>
                 <span className={`font-mono font-medium ${fxNeutralEur >= 0 ? "text-positive" : "text-negative"}`}>

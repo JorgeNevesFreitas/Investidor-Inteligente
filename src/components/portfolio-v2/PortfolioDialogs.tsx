@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +14,11 @@ import { getMemberCashProportions, getMemberTickerProportions } from "@/lib/port
 import { DBCompany } from "@/lib/financialDataService";
 import { restoreFollowingAfterBuy, WATCH_STATUS_LABELS } from "@/lib/watchStatusService";
 import { fmtCcy } from "./shared";
+import {
+  FxAdjustmentMode, FX_ADJUSTMENT_DEFAULT_NOTE, cashBalanceFor, computeFxAdjustment,
+  fxAdjustmentCurrency, parseSignedNumber, splitFxAdjustment,
+} from "@/lib/fxAdjustment";
+import { FxAdjustmentSection } from "./FxAdjustmentSection";
 
 // Ported (unchanged behavior) from the old Portfolio.tsx "Registar transação" / "Registar liquidez" dialogs.
 
@@ -319,7 +324,7 @@ export function AddTransactionDialog({
 // ── Add Cash Dialog ────────────────────────────────────────────────────────────
 
 interface CashForm {
-  type: "deposit" | "withdrawal";
+  type: "deposit" | "withdrawal" | "fx_adjustment";
   date: string;
   amount: string;
   currency: "EUR" | "USD";
@@ -345,16 +350,91 @@ interface AddCashDialogProps {
   onOpenChange: (open: boolean) => void;
   members: PortfolioMember[];
   onSaved: () => Promise<void> | void;
+  cashEntries: PortfolioCash[];
+  totalPortfolioEur: number;
+  fxAdjustmentsEur: number;
+  eurUsd: number;
+  /** Each member's weight in total deposits (pct in 0..1), from memberStats. */
+  memberWeights: { member_id: string; pct: number }[];
 }
 
-export function AddCashDialog({ open, onOpenChange, members, onSaved }: AddCashDialogProps) {
+export function AddCashDialog({
+  open, onOpenChange, members, onSaved,
+  cashEntries, totalPortfolioEur, fxAdjustmentsEur, memberWeights,
+}: AddCashDialogProps) {
   const { toast } = useToast();
   const [cashForm, setCashForm] = useState<CashForm>(EMPTY_CASH_FORM);
   const [submittingCash, setSubmittingCash] = useState(false);
 
+  // ── "Ajuste cambial" state (only used when cashForm.type === "fx_adjustment") ──
+  const [fxMode, setFxMode] = useState<FxAdjustmentMode>("portfolio_total");
+  const [fxValue, setFxValue] = useState("");
+  const [fxCurrency, setFxCurrency] = useState<"EUR" | "USD">("EUR");
+
   useEffect(() => {
-    if (open) setCashForm(EMPTY_CASH_FORM);
+    if (open) {
+      setCashForm(EMPTY_CASH_FORM);
+      setFxMode("portfolio_total");
+      setFxValue("");
+      setFxCurrency("EUR");
+    }
   }, [open]);
+
+  const isFx = cashForm.type === "fx_adjustment";
+  const fxBroker = getEffectiveBroker(cashForm.broker, cashForm.brokerCustom);
+  const fxEffectiveCurrency = fxAdjustmentCurrency(fxMode, fxCurrency);
+  const fxAppCashBalance = useMemo(
+    () => cashBalanceFor(cashEntries, fxBroker, fxCurrency),
+    [cashEntries, fxBroker, fxCurrency]
+  );
+  const fxAdjustment = computeFxAdjustment({
+    mode: fxMode,
+    value: parseSignedNumber(fxValue),
+    totalPortfolioEur,
+    fxAdjustmentsEur,
+    appCashBalance: fxAppCashBalance,
+  });
+  const fxSplits = useMemo(
+    () => splitFxAdjustment(Number.isFinite(fxAdjustment) ? fxAdjustment : 0, members.map(m => m.id), memberWeights),
+    [fxAdjustment, members, memberWeights]
+  );
+
+  const selectCashType = (t: CashForm["type"]) =>
+    setCashForm(p => ({
+      ...p,
+      type: t,
+      notes: t === "fx_adjustment"
+        ? (p.notes.trim() ? p.notes : FX_ADJUSTMENT_DEFAULT_NOTE)
+        : (p.notes === FX_ADJUSTMENT_DEFAULT_NOTE ? "" : p.notes),
+    }));
+
+  const handleFxSubmit = async () => {
+    const effectiveBroker = getEffectiveBroker(cashForm.broker, cashForm.brokerCustom);
+    if (!cashForm.date || !effectiveBroker || (cashForm.broker === "Outras" && !cashForm.brokerCustom.trim())) {
+      toast({ title: "Campos obrigatórios", description: "Data e broker são obrigatórios.", variant: "destructive" });
+      return;
+    }
+    if (!Number.isFinite(fxAdjustment) || Math.abs(fxAdjustment) < 0.01) {
+      toast({ title: "Valor inválido", description: "O ajuste tem de ser, em valor absoluto, de pelo menos 0,01.", variant: "destructive" });
+      return;
+    }
+    setSubmittingCash(true);
+    try {
+      const amount = parseFloat(fxAdjustment.toFixed(4));
+      await addCashEntryWithMembers(
+        { date: cashForm.date, type: "fx_adjustment", ticker: null, amount, currency: fxEffectiveCurrency, broker: effectiveBroker, notes: cashForm.notes || null },
+        splitFxAdjustment(amount, members.map(m => m.id), memberWeights)
+          .map(s => ({ member_id: s.member_id, amount: s.amount, percentage: s.percentage }))
+      );
+      toast({ title: "Guardado", description: "Ajuste cambial registado." });
+      onOpenChange(false);
+      await onSaved();
+    } catch (e) {
+      toast({ title: "Erro", description: e instanceof Error ? e.message : "Erro desconhecido", variant: "destructive" });
+    } finally {
+      setSubmittingCash(false);
+    }
+  };
 
   const cashFormMembers: PortfolioMember[] = members.length > 0 ? members : [
     { id: "_vjf", name: "V&J",     created_at: "" },
@@ -369,6 +449,7 @@ export function AddCashDialog({ open, onOpenChange, members, onSaved }: AddCashD
   const cashMemberRemaining = cashFormTotal - cashMemberTotal;
 
   const handleAddCashSubmit = async () => {
+    if (cashForm.type === "fx_adjustment") return handleFxSubmit();
     const effectiveBroker = getEffectiveBroker(cashForm.broker, cashForm.brokerCustom);
     if (!cashForm.date || !cashForm.amount || !effectiveBroker) {
       toast({ title: "Campos obrigatórios", description: "Data, valor e broker são obrigatórios.", variant: "destructive" });
@@ -426,17 +507,19 @@ export function AddCashDialog({ open, onOpenChange, members, onSaved }: AddCashD
           <div>
             <label className="text-xs text-muted-foreground">Tipo</label>
             <div className="mt-1.5 flex gap-1.5">
-              {(["deposit", "withdrawal"] as const).map(t => (
+              {(["deposit", "withdrawal", "fx_adjustment"] as const).map(t => (
                 <button key={t}
                   className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors border ${
                     cashForm.type === t
                       ? t === "deposit"
                         ? "bg-positive/15 text-positive border-positive/30"
-                        : "bg-negative/15 text-negative border-negative/30"
+                        : t === "withdrawal"
+                        ? "bg-negative/15 text-negative border-negative/30"
+                        : "bg-primary/15 text-primary border-primary/30"
                       : "bg-secondary text-muted-foreground border-transparent hover:bg-accent"
                   }`}
-                  onClick={() => setCashForm(p => ({ ...p, type: t }))}>
-                  {t === "deposit" ? "Depósito" : "Levantamento"}
+                  onClick={() => selectCashType(t)}>
+                  {t === "deposit" ? "Depósito" : t === "withdrawal" ? "Levantamento" : "Ajuste cambial"}
                 </button>
               ))}
             </div>
@@ -448,6 +531,7 @@ export function AddCashDialog({ open, onOpenChange, members, onSaved }: AddCashD
               <Input type="date" className="mt-1 h-8 text-xs" value={cashForm.date}
                 onChange={e => setCashForm(p => ({ ...p, date: e.target.value }))} />
             </div>
+            {!isFx && (
             <div>
               <label className="text-xs text-muted-foreground">Moeda</label>
               <Select value={cashForm.currency} onValueChange={v => setCashForm(p => ({ ...p, currency: v as "EUR" | "USD" }))}>
@@ -458,14 +542,17 @@ export function AddCashDialog({ open, onOpenChange, members, onSaved }: AddCashD
                 </SelectContent>
               </Select>
             </div>
+            )}
           </div>
 
+          {!isFx && (
           <div>
             <label className="text-xs text-muted-foreground">Valor total</label>
             <Input type="number" step="0.01" min="0" className="mt-1 h-8 text-xs font-mono"
               placeholder="0.00" value={cashForm.amount}
               onChange={e => setCashForm(p => ({ ...p, amount: e.target.value }))} />
           </div>
+          )}
 
           <div>
             <label className="text-xs text-muted-foreground">Broker *</label>
@@ -482,6 +569,26 @@ export function AddCashDialog({ open, onOpenChange, members, onSaved }: AddCashD
             )}
           </div>
 
+          {isFx && (
+            <FxAdjustmentSection
+              mode={fxMode}
+              onModeChange={setFxMode}
+              value={fxValue}
+              onValueChange={setFxValue}
+              currency={fxCurrency}
+              onCurrencyChange={setFxCurrency}
+              effectiveCurrency={fxEffectiveCurrency}
+              broker={fxBroker}
+              totalPortfolioEur={totalPortfolioEur}
+              fxAdjustmentsEur={fxAdjustmentsEur}
+              appCashBalance={fxAppCashBalance}
+              adjustment={fxAdjustment}
+              members={members}
+              splits={fxSplits}
+            />
+          )}
+
+          {!isFx && (
           <div className="rounded-md border border-border/60 bg-secondary/20 p-2.5">
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-foreground">
@@ -541,6 +648,7 @@ export function AddCashDialog({ open, onOpenChange, members, onSaved }: AddCashD
               )}
             </div>
           </div>
+          )}
 
           <div>
             <label className="text-xs text-muted-foreground">Notas (opcional)</label>

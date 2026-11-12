@@ -9,6 +9,7 @@ import {
 import { getMemberTickerProportions } from "@/lib/portfolioAnalytics";
 import { DBCompany } from "@/lib/financialDataService";
 import { CompanyLinksMenu } from "./CompanyLinksMenu";
+import { StatementTable } from "./StatementTable";
 import { fmtEur, fmtCcy, fmtQty, memberColor, ReturnCell } from "./shared";
 
 interface PositionsTableProps {
@@ -22,12 +23,13 @@ interface PositionsTableProps {
   allDividends: PortfolioDividend[];
   onDeleteTransaction: (tx: PortfolioTransaction) => void;
   onDeleteDividend: (div: PortfolioDividend) => void;
+  onDeleteCashEntry: (entry: PortfolioCash) => Promise<void> | void;
 }
 
 export function PositionsTable({
   positions, members, cashEntries, cashMemberEntries,
   companyByTicker, companyNotesMap, allTransactions, allDividends,
-  onDeleteTransaction, onDeleteDividend,
+  onDeleteTransaction, onDeleteDividend, onDeleteCashEntry,
 }: PositionsTableProps) {
   const [activeTab, setActiveTab] = useState<string>("abertas");
   const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set());
@@ -83,9 +85,10 @@ export function PositionsTable({
     { id: "encerradas", label: "Encerradas" },
     { id: "historico", label: "Histórico" },
     { id: "dividendos", label: "Dividendos" },
+    { id: "extrato", label: "Extrato" },
   ];
 
-  const isPositionsTab = activeTab !== "historico" && activeTab !== "dividendos";
+  const isPositionsTab = activeTab !== "historico" && activeTab !== "dividendos" && activeTab !== "extrato";
 
   return (
     <div className="space-y-3">
@@ -119,6 +122,16 @@ export function PositionsTable({
         <HistoryTable rows={historyRows} companyByTicker={companyByTicker} onDelete={onDeleteTransaction} />
       ) : activeTab === "dividendos" ? (
         <DividendsTable rows={dividendRows} companyByTicker={companyByTicker} onDelete={onDeleteDividend} />
+      ) : activeTab === "extrato" ? (
+        <StatementTable
+          transactions={allTransactions}
+          dividends={allDividends}
+          cashEntries={cashEntries}
+          companyByTicker={companyByTicker}
+          onDeleteTransaction={onDeleteTransaction}
+          onDeleteDividend={onDeleteDividend}
+          onDeleteCashEntry={onDeleteCashEntry}
+        />
       ) : filteredPositions.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 flex flex-col items-center justify-center text-center">
           <p className="text-sm font-medium text-foreground">

@@ -9,7 +9,7 @@ import {
   PortfolioCash, PortfolioCashMember, PortfolioDailySnapshot,
   computePositions, fetchTransactions, fetchDividends,
   fetchMembers, fetchCash, fetchCashMembers, fetchDailySnapshots,
-  deleteTransaction, deleteDividend,
+  deleteTransaction, deleteDividend, deleteCashEntry,
 } from "@/lib/portfolioService";
 import {
   computeMWR, computeAlignedReturns, computeTWR, computeVolatility,
@@ -126,6 +126,16 @@ export default function PortfolioV2() {
     }
   };
 
+  const handleDeleteCashEntry = async (entry: PortfolioCash) => {
+    try {
+      await deleteCashEntry(entry.id);
+      await loadAll();
+      toast({ title: "Movimento removido" });
+    } catch (e) {
+      toast({ title: "Erro", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    }
+  };
+
   // ── Derived state ────────────────────────────────────────────────────────
 
   const companyByTicker = useMemo(() => {
@@ -232,7 +242,16 @@ export default function PortfolioV2() {
   // positions (liquidity down, invested up, total unchanged) and must never move the total by itself.
   // Computing it that way also depends on every buy/sell/dividend having a matching portfolio_cash
   // entry, which isn't guaranteed — deposits/withdrawals (real bank transfers) are the reliable source.
-  const portfolioGainLossEur = totals.stockEur + totals.divEur;
+  // The FX effect on capital converted to USD is NOT derivable (purchase-date FX rates aren't stored),
+  // so it's recorded manually as signed 'fx_adjustment' portfolio_cash rows (reconciled with the broker)
+  // and added here as income — it therefore flows into totalPortfolioEur and portfolioGainLossPct.
+  const fxAdjustmentsEur = useMemo(
+    () => cashEntries
+      .filter(e => e.type === "fx_adjustment")
+      .reduce((s, e) => s + (e.currency === "EUR" ? e.amount : e.amount / eurUsd), 0),
+    [cashEntries, eurUsd]
+  );
+  const portfolioGainLossEur = totals.stockEur + totals.divEur + fxAdjustmentsEur;
   const totalPortfolioEur = netContributedEur + portfolioGainLossEur;
   const portfolioGainLossPct = totalDepositedEur > 0 ? (portfolioGainLossEur / totalDepositedEur) * 100 : 0;
 
@@ -244,6 +263,8 @@ export default function PortfolioV2() {
     [positions, eurUsd]
   );
   const fxEffect = (totals.stockEur + totals.divEur) - fxNeutralTotal;
+  // App-side estimate only (not included in the total) — the registered fx_adjustment rows are what counts.
+  const fxEffectEstimateEur = fxEffect;
 
   // Each member's weight is FIXED: their share of total deposits (their portfolio_cash_members
   // splits of deposit-type portfolio_cash rows), converted to EUR. That single percentage is then
@@ -271,6 +292,7 @@ export default function PortfolioV2() {
 
       const stockReturnEur = totals.stockEur * pct;
       const dividendReturnEur = totals.divEur * pct;
+      const fxAdjustmentEur = fxAdjustmentsEur * pct;
 
       return {
         member,
@@ -282,11 +304,17 @@ export default function PortfolioV2() {
         stockReturnEur,
         stockReturnPct: totals.stockPct,
         dividendReturnEur,
-        totalReturnEur: stockReturnEur + dividendReturnEur,
+        fxAdjustmentEur,
+        totalReturnEur: stockReturnEur + dividendReturnEur + fxAdjustmentEur,
         totalPct: totalReturnPct,
       };
     });
-  }, [members, cashEntries, cashMemberEntries, totals, totalPortfolioEur, totalCashEur, eurUsd]);
+  }, [members, cashEntries, cashMemberEntries, totals, totalPortfolioEur, totalCashEur, eurUsd, fxAdjustmentsEur]);
+
+  const memberWeights = useMemo(
+    () => memberStats.map(ms => ({ member_id: ms.member.id, pct: ms.pct })),
+    [memberStats]
+  );
 
   const memberValueBreakdown: MemberValueBreakdown[] = useMemo(() =>
     memberStats.map(ms => ({
@@ -447,6 +475,8 @@ export default function PortfolioV2() {
           stockReturnPct={totals.stockPct}
           fxNeutralEur={fxNeutralTotal}
           fxEffectEur={fxEffect}
+          fxAdjustmentsEur={fxAdjustmentsEur}
+          fxEffectEstimateEur={fxEffectEstimateEur}
           top5ByReturn={top5ByReturn}
           totalDividendsEur={totals.divEur}
           dividendsByCompany={dividendsByCompany}
@@ -482,6 +512,7 @@ export default function PortfolioV2() {
           allDividends={dividends}
           onDeleteTransaction={handleDeleteTransaction}
           onDeleteDividend={handleDeleteDividend}
+          onDeleteCashEntry={handleDeleteCashEntry}
         />
       </div>
 
@@ -499,6 +530,11 @@ export default function PortfolioV2() {
         onOpenChange={setShowAddCash}
         members={members}
         onSaved={handleDataSaved}
+        cashEntries={cashEntries}
+        totalPortfolioEur={totalPortfolioEur}
+        fxAdjustmentsEur={fxAdjustmentsEur}
+        eurUsd={eurUsd}
+        memberWeights={memberWeights}
       />
     </AppLayout>
   );
